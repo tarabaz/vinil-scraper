@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS listings (
     currency TEXT,
     url TEXT,
     image_url TEXT,
+    listed_at TEXT,
     first_seen_at TEXT NOT NULL,
     UNIQUE(source, external_id)
 );
@@ -42,13 +43,14 @@ def insert_listing(
     currency: str | None = None,
     url: str | None = None,
     image_url: str | None = None,
+    listed_at: str | None = None,
 ) -> bool:
     """Inserisce un annuncio. Ritorna True se nuovo, False se già presente (duplicato)."""
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO listings
-            (source, external_id, category, title, price, currency, url, image_url, first_seen_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (source, external_id, category, title, price, currency, url, image_url, listed_at, first_seen_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             source,
@@ -59,6 +61,7 @@ def insert_listing(
             currency,
             url,
             image_url,
+            listed_at,
             datetime.now(timezone.utc).isoformat(),
         ),
     )

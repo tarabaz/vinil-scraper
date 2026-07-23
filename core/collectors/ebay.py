@@ -73,6 +73,7 @@ def search_items(query: str, limit: int = 10, marketplace: str = "EBAY_IT") -> l
                 "currency": price.get("currency"),
                 "url": item.get("itemWebUrl"),
                 "image_url": image.get("imageUrl"),
+                "listed_at": item.get("itemCreationDate"),
             }
         )
     return results

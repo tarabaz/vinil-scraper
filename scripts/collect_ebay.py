@@ -1,30 +1,37 @@
 """Cerca annunci su eBay, li filtra a regole, salva nel DB i nuovi e notifica su Telegram."""
 
+import time
+from datetime import datetime
+
 from bot.notifier import send_message
 from core.collectors.ebay import search_items
 from core.db import get_connection, insert_listing
 from core.filters import load_rules, passes_filters
 
-TELEGRAM_MESSAGE_BUDGET = 3500  # margine sotto il limite di 4096 caratteri di Telegram
+SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti messaggi consecutivi
+
+
+def format_listed_at(listed_at: str | None) -> str:
+    if not listed_at:
+        return "data non disponibile"
+    try:
+        return datetime.fromisoformat(listed_at.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return listed_at
 
 
 def notify_new_listings(new_listings: list[dict]) -> None:
-    if not new_listings:
-        return
-
-    lines = [f"🎵 {len(new_listings)} nuovi annunci vinili trovati:\n"]
-    shown = 0
+    # TODO: quando avremo l'arricchimento Discogs, aggiungere qui prezzo reale
+    # del disco e differenza rispetto al prezzo dell'annuncio.
     for item in new_listings:
-        line = f"\n{item['title']} — {item['price']} {item['currency']}\n{item['url']}"
-        if sum(len(l) for l in lines) + len(line) > TELEGRAM_MESSAGE_BUDGET:
-            break
-        lines.append(line)
-        shown += 1
-
-    if shown < len(new_listings):
-        lines.append(f"\n\n…e altri {len(new_listings) - shown} annunci non mostrati qui.")
-
-    send_message("".join(lines))
+        text = (
+            f"🎵 {item['title']}\n"
+            f"Prezzo annuncio: {item['price']} {item['currency']}\n"
+            f"Pubblicato: {format_listed_at(item.get('listed_at'))}\n"
+            f"{item['url']}"
+        )
+        send_message(text)
+        time.sleep(SECONDS_BETWEEN_MESSAGES)
 
 
 def collect(query: str, category: str = "vinyl", limit: int = 50) -> None:
@@ -53,6 +60,7 @@ def collect(query: str, category: str = "vinyl", limit: int = 50) -> None:
             currency=item["currency"],
             url=item["url"],
             image_url=item["image_url"],
+            listed_at=item.get("listed_at"),
         )
         if is_new:
             new_listings.append(item)
