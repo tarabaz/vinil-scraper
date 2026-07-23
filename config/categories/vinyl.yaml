@@ -13,10 +13,11 @@ blacklist_keywords:
   - scaffale
   - stand
   - funko
-  - pop vinyl
   - action figure
   - t-shirt
-  - poster
+  - poster only
+  - solo poster
+  - poster print
 
   # attrezzatura audio, non dischi
   - giradischi
