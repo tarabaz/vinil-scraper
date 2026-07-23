@@ -1,0 +1,25 @@
+# Regole per la categoria vinili. Girano prima di qualsiasi AI.
+
+# Se il titolo contiene una di queste parole (case-insensitive), l'annuncio viene scartato.
+blacklist_keywords:
+  - inner sleeve
+  - inner sleeves
+  - copertina vuota
+  - solo copertina
+  - custodia
+  - porta dischi
+  - portadischi
+  - scaffale
+  - stand
+  - funko
+  - pop vinyl
+  - action figure
+  - t-shirt
+  - poster
+
+# Se non vuota, l'annuncio deve contenere almeno una di queste parole nel titolo.
+whitelist_keywords: []
+
+price:
+  min: 3.0
+  max: 500.0
