@@ -130,7 +130,11 @@ def collect(collector, query: str, category: str = "vinyl", **search_settings) -
     return new_listings
 
 
-if __name__ == "__main__":
+def run_collection() -> dict:
+    """Ciclo completo: pulizia DB, ricerca su tutti i marketplace abilitati
+    (tutte le query aggregate), filtri, dedup, notifica. Ritorna un
+    riepilogo — usata sia dall'esecuzione da terminale (__main__) sia dal
+    comando /cerca del bot Telegram, così la logica vive in un posto solo."""
     ensure_admin_registered()
 
     cleanup_conn = get_connection()
@@ -154,6 +158,7 @@ if __name__ == "__main__":
         print(f"Categoria eBay: '{ebay_category_setting}', nessuna restrizione applicata.\n")
 
     all_new_listings = []
+    errors = []
 
     for marketplace in enabled_marketplaces:
         if marketplace not in REGISTRY:
@@ -177,7 +182,15 @@ if __name__ == "__main__":
             try:
                 all_new_listings += collect(collector, query, **search_settings)
             except Exception as exc:
-                print(f"[ERRORE] Ricerca '{query}' su {marketplace} fallita, salto: {exc}")
+                error_message = f"Ricerca '{query}' su {marketplace} fallita: {exc}"
+                print(f"[ERRORE] {error_message}")
+                errors.append(error_message)
 
     print(f"\n=== Ricerche completate: {len(all_new_listings)} annunci nuovi in totale, notifica in corso ===")
     notify_new_listings(all_new_listings)
+
+    return {"removed": removed, "new_listings": len(all_new_listings), "errors": errors}
+
+
+if __name__ == "__main__":
+    run_collection()

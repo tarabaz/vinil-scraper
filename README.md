@@ -232,6 +232,12 @@ Da lì, direttamente dal bot: abilita/disabilita marketplace, tipo di ricerca
 (lotti/singoli), categoria eBay, e gestisci le parole chiave di ricerca ed
 esclusione (sospendi/riattiva con un tocco, aggiungi scrivendo un messaggio).
 
+**Avviare la ricerca da Telegram** (senza terminale): comando `/cerca` o
+bottone "🔍 Cerca ora" nel menu (solo amministratore) — esegue lo stesso
+ciclo di `python -m scripts.collect` e alla fine manda un riepilogo in chat.
+Richiede comunque che `python -m bot.settings_menu` sia in esecuzione da
+qualche parte (PC acceso), esattamente come per il resto del bot.
+
 **Multi-utente**: la prima volta che il chat id in `TELEGRAM_CHAT_ID` scrive
 `/start` diventa automaticamente amministratore. Chiunque altro scriva al
 bot riceve un messaggio "richiesta inviata" e l'amministratore riceve una
@@ -282,6 +288,11 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   homepage per ottenere i cookie di sessione prima della ricerca, nel
   tentativo di superare il blocco 403 osservato contro il sito reale — non
   garantito, ancora da verificare
+- **2026-07-24** — Comando `/cerca` (e bottone "🔍 Cerca ora" nel menu, solo
+  amministratore): avvia la ricerca completa direttamente da Telegram, senza
+  bisogno del terminale — gira in un thread separato per non bloccare il bot
+  mentre cerca, e alla fine manda un riepilogo (annunci nuovi trovati,
+  eventuali errori per marketplace)
 - **2026-07-24** — Ricerca per codice catalogo restringibile per paese/anno
 - **2026-07-24** — Ricerca eBay ristretta alla categoria ufficiale vinili (Taxonomy API)
 - **2026-07-24** — Fusione multi-foto e sistema di confidenza per i dischi rilevati (`core/vision/matching.py`)

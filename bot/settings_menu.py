@@ -20,6 +20,7 @@ regione/provincia/spedizione per Subito) sono rimandate a un passaggio
 successivo — alcune (regione/provincia) non si prestano bene a bottoni e
 servirebbe testo libero, un problema di design diverso."""
 
+import asyncio
 import os
 
 from dotenv import load_dotenv
@@ -50,6 +51,7 @@ from core.users import (
     reject_user,
     request_access,
 )
+from scripts.collect import run_collection
 
 load_dotenv()
 
@@ -135,6 +137,7 @@ def build_menu_markup(chat_id: int) -> InlineKeyboardMarkup:
             rows.append([InlineKeyboardButton(f"{mark} {option}", callback_data=f"ebaycat:{option}")])
 
         rows.append([InlineKeyboardButton("🔑 Parole chiave (globali)", callback_data="kwmain")])
+        rows.append([InlineKeyboardButton("🔍 Cerca ora", callback_data="searchnow")])
         rows.append([InlineKeyboardButton("👥 Gestisci utenti", callback_data="users")])
 
     rows.append([InlineKeyboardButton("🔍 I miei filtri", callback_data="myfilters")])
@@ -254,6 +257,34 @@ async def _request_access(update: Update, context: ContextTypes.DEFAULT_TYPE, ch
     )
 
 
+async def _run_search_now(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    """Esegue run_collection() (ricerca + filtri + notifica) su richiesta,
+    invece di dover lanciare scripts.collect da terminale. Gira in un thread
+    a parte (asyncio.to_thread): run_collection fa chiamate di rete
+    bloccanti, farla girare direttamente nell'handler bloccherebbe l'intero
+    bot finché non finisce."""
+    if not is_admin(chat_id):
+        await context.bot.send_message(chat_id=chat_id, text="Solo l'amministratore può avviare la ricerca manualmente.")
+        return
+
+    await context.bot.send_message(chat_id=chat_id, text="🔍 Ricerca avviata, può richiedere qualche minuto...")
+    try:
+        summary = await asyncio.to_thread(run_collection)
+    except Exception as exc:
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Ricerca fallita: {exc}")
+        return
+
+    lines = [f"✅ Ricerca completata: {summary['new_listings']} annunci nuovi trovati."]
+    if summary["errors"]:
+        lines.append("\n⚠️ Errori:")
+        lines += [f"- {e}" for e in summary["errors"]]
+    await context.bot.send_message(chat_id=chat_id, text="\n".join(lines))
+
+
+async def cerca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _run_search_now(update, context, update.effective_chat.id)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     username = update.effective_user.username if update.effective_user else None
@@ -321,6 +352,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # Da qui in poi: sezioni riservate all'amministratore.
     if not is_admin(chat_id):
+        return
+
+    if data == "searchnow":
+        await _run_search_now(update, context, chat_id)
         return
 
     if data == "users":
@@ -409,6 +444,7 @@ def main() -> None:
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("impostazioni", start))
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("cerca", cerca_command))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(tg_filters.TEXT & ~tg_filters.COMMAND, handle_text))
 
