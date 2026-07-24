@@ -1,26 +1,20 @@
 """Parole chiave di ricerca di default, usate per inizializzare le
-impostazioni modificabili a runtime (menu Telegram) al primo utilizzo."""
+impostazioni modificabili a runtime (menu Telegram) al primo utilizzo.
+
+Nessun artista specifico di default: sono ricerche generiche per trovare
+vinili/lotti in generale. Se vuoi cercare un artista preciso, aggiungilo tu
+manualmente dal bot ("🔑 Parole chiave" → categoria → "+ Aggiungi nuova")."""
 
 DEFAULT_GENRE_QUERIES = {
     "ebay": [
-        "AC/DC vinyl",
-        "Metallica vinyl",
-        "Nirvana vinyl",
-        "Led Zeppelin vinyl",
-        "Pink Floyd vinyl",
-        "rock vinyl record",
-        "metal vinyl record",
-        "vinile pop italiano",
+        "vinyl record",
+        "vinyl LP",
+        "vinile 33 giri",
     ],
     "subito": [
-        "AC/DC vinile",
-        "Metallica vinile",
-        "Nirvana vinile",
-        "Led Zeppelin vinile",
-        "Pink Floyd vinile",
-        "vinile rock",
-        "vinile metal",
-        "vinile pop italiano",
+        "vinile",
+        "disco vinile",
+        "LP vinile",
     ],
 }
 
