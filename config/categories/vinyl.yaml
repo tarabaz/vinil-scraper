@@ -1,0 +1,59 @@
+# Regole per la categoria vinili. Girano prima di qualsiasi AI.
+
+# Se il titolo contiene una di queste parole (case-insensitive), l'annuncio viene scartato.
+blacklist_keywords:
+  # accessori, non dischi
+  - inner sleeve
+  - inner sleeves
+  - copertina vuota
+  - solo copertina
+  - custodia
+  - porta dischi
+  - portadischi
+  - scaffale
+  - stand
+  - funko
+  - action figure
+  - t-shirt
+  - poster only
+  - solo poster
+  - poster print
+
+  # attrezzatura audio, non dischi
+  - giradischi
+  - turntable
+  - record player
+  - preamplificatore
+  - preamplifier
+  - preamp
+  - phono
+  - puntina
+  - stylus
+  - cartridge
+  - cavo audio
+  - audio cable
+
+  # annunci "scegli tu" da un elenco: il venditore sa già cosa vende e prezza
+  # ogni disco singolarmente, quindi non ci sono occasioni da prezzo sbagliato
+  - you pick
+  - you choose
+  - your choice
+  - pick your
+  - select your
+  - choose your
+  - scegli il tuo
+  - scegli tra
+  - a scelta tra
+
+  # annunci generici/vaghi
+  - special listing for
+
+# Se non vuota, l'annuncio deve contenere almeno una di queste parole nel titolo.
+# Lasciata vuota di proposito: un venditore che non sa cosa vende non scrive
+# l'artista nel titolo, quindi una whitelist per genere scarterebbe proprio
+# le occasioni nei lotti "anonimi" che interessano di più.
+whitelist_keywords: []
+
+# Nessun tetto di prezzo: quello che conta è il prezzo rispetto al valore
+# reale del disco (arricchimento Discogs, fase successiva), non un valore
+# assoluto.
