@@ -16,6 +16,8 @@ from core.filters import load_rules, passes_filters
 from core.keywords import enabled_keywords
 from core.query_defaults import DEFAULT_GENRE_QUERIES, DEFAULT_LOT_QUERIES
 from core.settings import get_setting
+from core.user_filters import matches_user_filter
+from core.users import ensure_admin_registered, list_approved
 
 SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti messaggi consecutivi
 
@@ -48,9 +50,23 @@ def build_message(item: dict) -> str:
 
 
 def notify_new_listings(new_listings: list[dict]) -> None:
+    """Ricerca unica e globale: ogni utente approvato riceve solo gli
+    annunci che passano anche il proprio filtro personale (nessun filtro
+    personale impostato = riceve tutto)."""
+    users = list_approved()
+    if not users or not new_listings:
+        return
+
     for item in new_listings:
-        send_message(build_message(item), parse_mode="HTML")
-        time.sleep(SECONDS_BETWEEN_MESSAGES)
+        message = build_message(item)
+        for user in users:
+            if not matches_user_filter(user["chat_id"], item["title"]):
+                continue
+            try:
+                send_message(message, parse_mode="HTML", chat_id=user["chat_id"])
+            except Exception as exc:
+                print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
+            time.sleep(SECONDS_BETWEEN_MESSAGES)
 
 
 def collect(collector, query: str, category: str = "vinyl", **search_settings) -> None:
@@ -87,6 +103,8 @@ def collect(collector, query: str, category: str = "vinyl", **search_settings) -
 
 
 if __name__ == "__main__":
+    ensure_admin_registered()
+
     cleanup_conn = get_connection()
     removed = cleanup_old_listings(cleanup_conn)
     cleanup_conn.close()

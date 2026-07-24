@@ -35,6 +35,15 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    chat_id INTEGER PRIMARY KEY,
+    username TEXT,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    approved INTEGER NOT NULL DEFAULT 0,
+    requested_at TEXT,
+    approved_at TEXT
+);
 """
 
 

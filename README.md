@@ -33,6 +33,12 @@ piccolo che funziona.
   separato): marketplace attivi, tipo ricerca (lotti/singoli), categoria
   eBay, e gestione delle **parole chiave** (di ricerca e di esclusione) —
   sospendibili/riattivabili con un tocco, aggiungibili scrivendo un messaggio
+- ✅ **Multi-utente**: la ricerca resta unica e globale (impostazioni
+  riservate all'amministratore, `TELEGRAM_CHAT_ID` in `.env`); chiunque
+  altro scriva al bot deve essere approvato manualmente dall'amministratore
+  (bottoni ✅/❌ diretti in chat), poi può impostare solo i propri **filtri
+  personali** ("🔍 I miei filtri") che decidono quali annunci della ricerca
+  globale gli vengono notificati — nessun filtro impostato = riceve tutto
 - ✅ Fusione multi-foto e sistema di confidenza (`core/vision/matching.py`):
   la logica che unirà i dati letti da foto diverse dello stesso disco in
   un'unica voce — pronta, non ancora collegata a un detector/OCR reale
@@ -88,6 +94,17 @@ proposito: nessuna API pubblica, rischio alto).
 - **Menu impostazioni Telegram** (`bot/settings_menu.py`): processo separato
   e persistente (non uno script periodico) con bottoni inline per marketplace
   attivi, tipo ricerca, categoria eBay, e gestione parole chiave.
+- **Multi-utente** (`core/users.py`, `core/user_filters.py`): tabella
+  `users` in SQLite (non file per utente) con `chat_id`, `is_admin`,
+  `approved`. L'amministratore è auto-registrato da `TELEGRAM_CHAT_ID` in
+  `.env` a ogni avvio. Un utente non approvato che scrive al bot genera una
+  richiesta d'accesso con bottoni di approvazione diretti nella chat
+  dell'amministratore; una volta approvato, l'utente vede solo la sezione
+  "I miei filtri" (parole chiave personali, stesso meccanismo
+  sospendi/aggiungi delle parole chiave globali, riusa `core/keywords.py`
+  con chiave `user.<chat_id>.filter.keywords`). La ricerca resta unica:
+  `scripts/collect.py` cerca una volta sola e poi invia a ogni utente
+  approvato solo gli annunci che passano anche il suo filtro personale.
 - **Scheduling** (da fare): ogni 10 minuti + heartbeat giornaliero.
 
 Il core è pensato per essere indipendente da marketplace e categoria; vinili,
@@ -113,6 +130,8 @@ vinil-scraper/
 │   ├── keywords.py               # parole chiave sospendibili/aggiungibili
 │   ├── query_defaults.py        # liste di query di default per marketplace
 │   ├── filters.py               # filtri a regole (blacklist, prezzo)
+│   ├── users.py                  # utenti autorizzati (admin, approvazioni)
+│   ├── user_filters.py           # filtri personali per utente approvato
 │   ├── vision/
 │   │   └── matching.py          # fusione multi-foto + confidenza (dischi)
 │   └── collectors/
@@ -147,7 +166,10 @@ solo lì.
 
 - **Telegram**: crea un bot con [@BotFather](https://t.me/BotFather), poi
   scrivi al bot e leggi il chat id da
-  `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+  `https://api.telegram.org/bot<TOKEN>/getUpdates`. Questo chat id va in
+  `TELEGRAM_CHAT_ID` ed è anche quello che diventa **amministratore** del
+  bot multi-utente (unico che vede le impostazioni globali e approva nuovi
+  utenti).
 - **eBay**: registrati su [developer.ebay.com](https://developer.ebay.com/),
   crea un keyset Production, sblocca il keyset con l'esenzione "I do not
   persist eBay data" (Application Keys → Notifications → Marketplace Account
@@ -210,6 +232,16 @@ Da lì, direttamente dal bot: abilita/disabilita marketplace, tipo di ricerca
 (lotti/singoli), categoria eBay, e gestisci le parole chiave di ricerca ed
 esclusione (sospendi/riattiva con un tocco, aggiungi scrivendo un messaggio).
 
+**Multi-utente**: la prima volta che il chat id in `TELEGRAM_CHAT_ID` scrive
+`/start` diventa automaticamente amministratore. Chiunque altro scriva al
+bot riceve un messaggio "richiesta inviata" e l'amministratore riceve una
+notifica con bottoni ✅ Approva / ❌ Rifiuta. Una volta approvato, l'utente
+vede solo "🔍 I miei filtri": può abilitare parole chiave personali (es.
+"883") per ricevere solo gli annunci che le contengono, oppure lasciare
+tutto disabilitato per ricevere tutti i risultati della ricerca globale.
+L'amministratore gestisce approvazioni/rimozioni anche in seguito da "👥
+Gestisci utenti" nel menu principale.
+
 ## Changelog
 
 Ogni riga indica quando è stata fatta la modifica (data del commit).
@@ -226,6 +258,11 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
 - **2026-07-24** — Messaggio Telegram riformattato: link cliccabile, campo prezzo realistico
 - **2026-07-24** — Client Discogs: prezzi per condizione
 - **2026-07-24** — Client Discogs: ricerca per codice catalogo
+- **2026-07-24** — Multi-utente sul bot Telegram: tabella `users` in SQLite,
+  amministratore auto-registrato da `TELEGRAM_CHAT_ID`, richiesta/approvazione
+  d'accesso per nuovi utenti, filtri personali per utente ("🔍 I miei
+  filtri") applicati sopra la ricerca globale unica, menu "👥 Gestisci
+  utenti" per l'amministratore
 - **2026-07-24** — Ricerca per codice catalogo restringibile per paese/anno
 - **2026-07-24** — Ricerca eBay ristretta alla categoria ufficiale vinili (Taxonomy API)
 - **2026-07-24** — Fusione multi-foto e sistema di confidenza per i dischi rilevati (`core/vision/matching.py`)

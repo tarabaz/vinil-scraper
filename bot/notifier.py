@@ -12,11 +12,12 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
-def send_message(text: str, parse_mode: str | None = None) -> None:
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+def send_message(text: str, parse_mode: str | None = None, chat_id: str | int | None = None) -> None:
+    target_chat_id = chat_id or TELEGRAM_CHAT_ID
+    if not TELEGRAM_BOT_TOKEN or not target_chat_id:
         sys.exit("Errore: TELEGRAM_BOT_TOKEN e/o TELEGRAM_CHAT_ID non impostati in .env")
 
-    data = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+    data = {"chat_id": target_chat_id, "text": text}
     if parse_mode:
         data["parse_mode"] = parse_mode
 

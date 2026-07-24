@@ -27,7 +27,7 @@ def load_rules(category: str) -> dict:
     return rules
 
 
-def _contains_keyword(text: str, keyword: str) -> bool:
+def contains_keyword(text: str, keyword: str) -> bool:
     """Confronto per parola intera: 'stand' non deve scattare su 'standard'."""
     return re.search(rf"\b{re.escape(keyword.lower())}\b", text) is not None
 
@@ -37,11 +37,11 @@ def passes_filters(listing: dict, rules: dict) -> tuple[bool, str | None]:
     title = (listing.get("title") or "").lower()
 
     for keyword in rules.get("blacklist_keywords", []):
-        if _contains_keyword(title, keyword):
+        if contains_keyword(title, keyword):
             return False, f"blacklist: '{keyword}'"
 
     whitelist = rules.get("whitelist_keywords", [])
-    if whitelist and not any(_contains_keyword(title, keyword) for keyword in whitelist):
+    if whitelist and not any(contains_keyword(title, keyword) for keyword in whitelist):
         return False, "nessuna parola whitelist trovata nel titolo"
 
     price = listing.get("price")
