@@ -314,3 +314,50 @@ def build_enrichment_message(
         sections.append(f'🔗 <a href="{escaped_url}">Link {source.capitalize()}</a>')
 
     return "\n\n".join(sections), discount_pct
+
+
+def format_digest_line(title: str, price, currency, merged: dict, candidates: list[dict]) -> str | None:
+    """Riga sintetica (titolo, album, catalogo, prezzo eBay, prezzo Discogs
+    Good) per il comando /report — NON fa vision fresca, usa solo dati già
+    noti (titolo o cache). None se non c'è nessuna corrispondenza Discogs
+    (non "rientra nei parametri")."""
+    if not candidates:
+        return None
+
+    _, reference_prices = format_discogs_candidate(candidates[0], 1)
+    good_price = reference_prices.get(DEAL_CONDITION)
+    good_text = f"€{good_price}" if good_price else "n/d"
+
+    label = merged.get("album_title") or title or "?"
+    if merged.get("artist"):
+        label = f"{merged['artist']} — {label}"
+    catalog_part = f" | Cat: {merged['catalog_number']}" if merged.get("catalog_number") else ""
+
+    return f"🎵 {html.escape(label)}{html.escape(catalog_part)} | eBay: {price} {currency} | Discogs (Good): {good_text}"
+
+
+def generate_digest(conn, limit: int) -> list[str]:
+    """Righe sintetiche per gli annunci GIÀ nel DB (niente ricerca nuova sui
+    marketplace) che hanno una corrispondenza Discogs, usando solo dati già
+    noti (titolo o cache di vision_results — NON fa vision fresca, per
+    restare veloce e senza costo su un check che può girare spesso)."""
+    rows = conn.execute("SELECT source, external_id, title, price, currency FROM listings ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+    lines = []
+    for source, external_id, title, price, currency in rows:
+        hints = parse_title_hints(title)
+        if hints.get("artist") and hints.get("album_title"):
+            merged = {field: None for field in MERGE_FIELDS}
+            merged.update(hints)
+        else:
+            cached = get_cached_vision_results(conn, source, external_id)
+            if not cached:
+                continue
+            merged = merge_photo_results(cached)
+
+        candidates = find_discogs_candidates(merged)
+        line = format_digest_line(title, price, currency, merged, candidates)
+        if line:
+            lines.append(line)
+
+    return lines
