@@ -24,6 +24,9 @@ PROMPT = (
     "Rispondi SOLO con un oggetto JSON con esattamente questi campi: "
     '"artist", "album_title", "label", "catalog_number", "barcode", "other_text". '
     "Usa null per un campo se non è visibile in questa immagine — non inventare mai nulla. "
+    '"catalog_number" e "barcode" sono DUE campi separati e vanno tenuti distinti: '
+    "non scrivere mai il barcode dentro catalog_number o viceversa, e non unirli con "
+    "due punti o altri separatori nello stesso valore. "
     '"other_text" è per eventuale altro testo utile non coperto dagli altri campi (es. tracklist), '
     "altrimenti null. Nessun testo fuori dal JSON."
 )

@@ -93,17 +93,30 @@ def merge_photo_results(photo_results: list[dict]) -> dict:
     return merged
 
 
+def clean_catalog_number(catalog_number: str) -> str:
+    """Il modello a volte unisce codice catalogo e barcode in un'unica
+    stringa (es. "LMLP165: 502454968712") nonostante il prompt chieda di
+    tenerli separati — prendo solo la parte prima del separatore, che nella
+    pratica è il codice catalogo vero."""
+    return re.split(r"[:;/]", catalog_number, maxsplit=1)[0].strip()
+
+
 def find_discogs_candidates(merged: dict) -> list[dict]:
     """Preferisce il codice catalogo (più preciso) se letto, altrimenti
     artista+titolo. Non media mai i prezzi tra edizioni diverse: ritorna
-    tutti i candidati trovati (fino a MAX_DISCOGS_CANDIDATES)."""
+    tutti i candidati trovati (fino a MAX_DISCOGS_CANDIDATES). Prova prima
+    il codice catalogo ripulito, poi quello grezzo come ripiego (nel caso la
+    pulizia abbia tagliato qualcosa di utile)."""
     if merged.get("catalog_number"):
-        try:
-            candidates = search_by_catalog_number(merged["catalog_number"])
+        raw = merged["catalog_number"]
+        for candidate_value in dict.fromkeys([clean_catalog_number(raw), raw]):
+            try:
+                candidates = search_by_catalog_number(candidate_value)
+            except Exception as exc:
+                print(f"[ERRORE] ricerca Discogs per codice catalogo '{candidate_value}' fallita: {exc}")
+                continue
             if candidates:
                 return candidates[:MAX_DISCOGS_CANDIDATES]
-        except Exception as exc:
-            print(f"[ERRORE] ricerca Discogs per codice catalogo fallita: {exc}")
 
     if merged.get("artist") and merged.get("album_title"):
         try:
@@ -137,6 +150,10 @@ def format_discogs_candidate(candidate: dict) -> str:
     try:
         prices = get_price_suggestions(candidate["id"])
         low, high = price_range(prices)
+    except requests.exceptions.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return f"{line} — nessun prezzo disponibile su Discogs per questa edizione"
+        return f"{line} — prezzo non disponibile (errore Discogs: {exc})"
     except Exception as exc:
         return f"{line} — prezzo non disponibile ({exc})"
 

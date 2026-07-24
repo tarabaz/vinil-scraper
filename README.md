@@ -351,3 +351,10 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   tra edizioni diverse, mostra tutti i candidati trovati) e manda un
   messaggio Telegram di riepilogo per annuncio: prezzo dell'annuncio, dati
   riconosciuti, prezzo Discogs per edizione, link
+- **2026-07-24** — Due fix dal primo test reale con dati Discogs veri: (1)
+  il modello a volte univa codice catalogo e barcode in una sola stringa
+  (es. "LMLP165: 502454968712") impedendo la ricerca — ora viene ripulito
+  prima di cercare (con il valore grezzo come ripiego), e il prompt vision è
+  più esplicito nel tenerli separati; (2) una release Discogs senza prezzi
+  suggeriti dava 404 mostrato come errore grezzo — ora un messaggio pulito
+  ("nessun prezzo disponibile per questa edizione")
