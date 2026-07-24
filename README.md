@@ -132,6 +132,7 @@ vinil-scraper/
 │   ├── filters.py               # filtri a regole (blacklist, prezzo)
 │   ├── users.py                  # utenti autorizzati (admin, approvazioni)
 │   ├── user_filters.py           # filtri personali per utente approvato
+│   ├── notifications.py          # tracking annunci già notificati per utente
 │   ├── vision/
 │   │   └── matching.py          # fusione multi-foto + confidenza (dischi)
 │   └── collectors/
@@ -300,3 +301,15 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
 - **2026-07-24** — Architettura multi-marketplace: tipo `Listing` unificato, collector Subito
 - **2026-07-24** — Menu impostazioni Telegram (marketplace, tipo ricerca, categoria eBay)
 - **2026-07-24** — Gestione parole chiave (ricerca ed esclusione) dal menu Telegram
+- **2026-07-24** — Controllo "a ritroso" per i filtri personali: quando un
+  utente aggiunge o riattiva una parola nei propri filtri (🔍 I miei filtri),
+  il bot controlla anche gli annunci GIÀ presenti nel DB (trovati da
+  scansioni precedenti), non solo quelli delle prossime ricerche, e notifica
+  quelli che corrispondono — nuova tabella `user_notifications`
+  (`core/notifications.py`) per non rimandare mai due volte lo stesso
+  annuncio allo stesso utente, sia dal controllo a ritroso che dalle
+  notifiche "live"
+- **2026-07-24** — Comandi Telegram registrati con descrizione (menu "/" del
+  bot: `/start`, `/impostazioni`, `/cerca`) e testi del menu più chiari
+  (spiegazione breve in cima a menu principale, filtri personali, gestione
+  utenti)

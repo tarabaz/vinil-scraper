@@ -24,7 +24,7 @@ import asyncio
 import os
 
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -51,7 +51,7 @@ from core.users import (
     reject_user,
     request_access,
 )
-from scripts.collect import run_collection
+from scripts.collect import notify_backlog_for_user, run_collection
 
 load_dotenv()
 
@@ -65,9 +65,28 @@ DEFAULT_ENABLED_MARKETPLACES = ["ebay", "subito"]
 DEFAULT_SEARCH_MODES = ["lotti", "singoli"]
 DEFAULT_EBAY_CATEGORY = "Vinili"
 
-MAIN_MENU_TEXT = "⚙️ Impostazioni vinil-scraper"
-KEYWORD_CATEGORIES_TEXT = "🔑 Parole chiave (ricerca globale) — scegli categoria:"
-USERS_TEXT = "👥 Gestisci utenti"
+MAIN_MENU_TEXT = (
+    "⚙️ Impostazioni vinil-scraper\n"
+    "Tocca un'opzione per cambiarla. \"🔍 I miei filtri\" decide cosa ti "
+    "arriva delle ricerche; il resto (marketplace, parole di ricerca) è "
+    "riservato all'amministratore."
+)
+
+# Mostrati nel menu "/" di Telegram con la loro descrizione — non servono a
+# far funzionare i comandi (i CommandHandler funzionano comunque), sono solo
+# per la scoperta/UX: senza questo elenco chi apre il bot non sa cosa può
+# scrivere.
+BOT_COMMANDS = [
+    BotCommand("start", "Apri il menu impostazioni"),
+    BotCommand("impostazioni", "Apri il menu impostazioni (uguale a /start)"),
+    BotCommand("cerca", "Avvia subito una ricerca (solo amministratore)"),
+]
+KEYWORD_CATEGORIES_TEXT = (
+    "🔑 Parole chiave (ricerca globale)\n"
+    "Sono i termini cercati su eBay/Subito e le esclusioni automatiche. "
+    "Scegli una categoria:"
+)
+USERS_TEXT = "👥 Gestisci utenti\nApprova le richieste in attesa o rimuovi un utente già approvato."
 MY_FILTERS_TEXT = (
     "🔍 I tuoi filtri personali\n"
     "La ricerca è unica per tutti. Se non abiliti nessuna parola qui sotto "
@@ -257,6 +276,22 @@ async def _request_access(update: Update, context: ContextTypes.DEFAULT_TYPE, ch
     )
 
 
+async def _check_backlog_and_report(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+    """Dopo aver aggiunto/attivato un filtro personale, controlla anche gli
+    annunci GIÀ presenti nel DB (trovati da scansioni precedenti), non solo
+    quelli delle prossime ricerche — gira in un thread separato perché invia
+    messaggi (rete)."""
+    sent = await asyncio.to_thread(notify_backlog_for_user, chat_id)
+    if sent:
+        text = f"🔎 Trovati e inviati {sent} annunci già in archivio che corrispondono al filtro."
+    else:
+        text = (
+            "🔎 Nessun annuncio già in archivio corrisponde a questo filtro per ora "
+            "(verrà controllato automaticamente anche nelle prossime ricerche)."
+        )
+    await context.bot.send_message(chat_id=chat_id, text=text)
+
+
 async def _run_search_now(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
     """Esegue run_collection() (ricerca + filtri + notifica) su richiesta,
     invece di dover lanciare scripts.collect da terminale. Gira in un thread
@@ -340,9 +375,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data.startswith("myftoggle:"):
         index = int(data.split(":", 1)[1])
         sorted_keys = sorted(get_user_keywords(chat_id).keys())
+        newly_enabled = False
         if 0 <= index < len(sorted_keys):
-            toggle_user_keyword(chat_id, sorted_keys[index])
+            keyword = sorted_keys[index]
+            updated = toggle_user_keyword(chat_id, keyword)
+            newly_enabled = updated.get(keyword, False)
         await query.edit_message_text(MY_FILTERS_TEXT, reply_markup=build_my_filters_markup(chat_id))
+        if newly_enabled:
+            await _check_backlog_and_report(update, context, chat_id)
         return
 
     if data == "myfadd":
@@ -422,6 +462,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f'Aggiunta ai tuoi filtri personali: "{new_keyword}"',
             reply_markup=build_my_filters_markup(chat_id),
         )
+        await _check_backlog_and_report(update, context, chat_id)
         return
 
     if not is_admin(chat_id):
@@ -435,13 +476,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
+async def _post_init(app: Application) -> None:
+    """Registra i comandi su Telegram (menu \"/\" con descrizioni) appena il
+    bot si avvia."""
+    await app.bot.set_my_commands(BOT_COMMANDS)
+
+
 def main() -> None:
     if not TELEGRAM_BOT_TOKEN:
         raise SystemExit("Errore: TELEGRAM_BOT_TOKEN non impostato in .env")
 
     ensure_admin_registered()
 
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(_post_init).build()
     app.add_handler(CommandHandler("impostazioni", start))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cerca", cerca_command))

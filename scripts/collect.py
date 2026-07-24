@@ -14,6 +14,7 @@ from core.collectors.registry import REGISTRY
 from core.db import RETENTION_HOURS, cleanup_old_listings, get_connection, insert_listing
 from core.filters import load_rules, passes_filters
 from core.keywords import enabled_keywords
+from core.notifications import has_been_notified, mark_notified
 from core.query_defaults import DEFAULT_GENRE_QUERIES, DEFAULT_LOT_QUERIES
 from core.settings import get_setting
 from core.user_filters import matches_user_filter
@@ -28,6 +29,12 @@ SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti mess
 # comunque salvati nel DB (non si perdono), semplicemente non notificati
 # in questo giro. Da alzare/rimuovere quando si passa all'uso reale.
 MAX_NOTIFICATIONS_PER_RUN = 5
+
+# Quando un utente aggiunge/attiva una parola nei propri filtri personali,
+# notify_backlog_for_user() controlla anche gli annunci già nel DB (non solo
+# le prossime scansioni). Limite separato per non ritrovarsi con un'unica
+# attivazione che manda decine di messaggi in un colpo.
+MAX_BACKLOG_NOTIFICATIONS = 20
 
 DEFAULT_ENABLED_MARKETPLACES = ["ebay", "subito"]
 DEFAULT_SEARCH_MODES = ["lotti", "singoli"]
@@ -62,11 +69,14 @@ def notify_new_listings(new_listings: list[dict]) -> None:
     le query di ricerca. Ricerca unica e globale: ogni utente approvato
     riceve solo gli annunci che passano anche il proprio filtro personale
     (nessun filtro personale impostato = riceve tutto). Il totale dei
-    messaggi inviati è limitato da MAX_NOTIFICATIONS_PER_RUN."""
+    messaggi inviati è limitato da MAX_NOTIFICATIONS_PER_RUN. Ogni invio
+    viene registrato (core.notifications) per non rimandare mai due volte
+    lo stesso annuncio allo stesso utente."""
     users = list_approved()
     if not users or not new_listings:
         return
 
+    conn = get_connection()
     sent_count = 0
     for item in new_listings:
         if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
@@ -75,14 +85,18 @@ def notify_new_listings(new_listings: list[dict]) -> None:
         for user in users:
             if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
                 break
+            if has_been_notified(conn, user["chat_id"], item["source"], item["external_id"]):
+                continue
             if not matches_user_filter(user["chat_id"], item["title"]):
                 continue
             try:
                 send_message(message, parse_mode="HTML", chat_id=user["chat_id"])
+                mark_notified(conn, user["chat_id"], item["source"], item["external_id"])
             except Exception as exc:
                 print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
             sent_count += 1
             time.sleep(SECONDS_BETWEEN_MESSAGES)
+    conn.close()
 
     if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
         print(
@@ -90,6 +104,47 @@ def notify_new_listings(new_listings: list[dict]) -> None:
             "il resto dei nuovi annunci non è stato inviato su Telegram in questo giro "
             "(restano comunque salvati nel DB)."
         )
+
+
+def notify_backlog_for_user(chat_id: int, limit: int = MAX_BACKLOG_NOTIFICATIONS) -> int:
+    """Quando un utente aggiunge/attiva una parola nei propri filtri
+    personali, controlla anche gli annunci GIÀ presenti nel DB (trovati da
+    scansioni precedenti, non solo dalle prossime) e notifica quelli che
+    corrispondono al nuovo filtro e non gli sono già stati mandati. Ritorna
+    quanti ne ha inviati."""
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT source, external_id, title, price, currency, url, listed_at FROM listings"
+    ).fetchall()
+
+    sent = 0
+    for source, external_id, title, price, currency, url, listed_at in rows:
+        if sent >= limit:
+            break
+        if has_been_notified(conn, chat_id, source, external_id):
+            continue
+        if not matches_user_filter(chat_id, title):
+            continue
+
+        item = {
+            "source": source,
+            "title": title,
+            "price": price,
+            "currency": currency,
+            "url": url,
+            "listed_at": listed_at,
+        }
+        try:
+            send_message(build_message(item), parse_mode="HTML", chat_id=chat_id)
+            mark_notified(conn, chat_id, source, external_id)
+        except Exception as exc:
+            print(f"[ERRORE] invio backlog a {chat_id} fallito: {exc}")
+            continue
+        sent += 1
+        time.sleep(SECONDS_BETWEEN_MESSAGES)
+
+    conn.close()
+    return sent
 
 
 def collect(collector, query: str, category: str = "vinyl", **search_settings) -> list[dict]:

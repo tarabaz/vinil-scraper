@@ -44,6 +44,14 @@ CREATE TABLE IF NOT EXISTS users (
     requested_at TEXT,
     approved_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS user_notifications (
+    chat_id INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    notified_at TEXT NOT NULL,
+    PRIMARY KEY (chat_id, source, external_id)
+);
 """
 
 
