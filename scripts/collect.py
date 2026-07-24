@@ -127,24 +127,28 @@ def notify_new_listings(new_listings: list[dict], errors: list[str] | None = Non
                     enrichment["merged"],
                     enrichment["candidates"],
                 )
-                if discount_pct is not None and discount_pct >= UNDER_VALUE_THRESHOLD_PCT:
+                is_deal = discount_pct is not None and discount_pct >= UNDER_VALUE_THRESHOLD_PCT
+                if is_deal:
                     under_threshold_count += 1
 
-                sent_to_anyone = False
-                for user in users:
-                    if has_been_notified(conn, user["chat_id"], item["source"], item["external_id"]):
-                        continue
-                    if not matches_user_filter(user["chat_id"], item["title"]):
-                        continue
-                    try:
-                        send_message(message, parse_mode="HTML", chat_id=user["chat_id"])
-                        mark_notified(conn, user["chat_id"], item["source"], item["external_id"])
-                        sent_to_anyone = True
-                    except Exception as exc:
-                        print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
-                    time.sleep(SECONDS_BETWEEN_MESSAGES)
-                if sent_to_anyone:
-                    notified_count += 1
+                # Notifica solo i veri affari (sconto >= soglia): gli altri
+                # restano comunque nel DB, recuperabili con /report.
+                if is_deal:
+                    sent_to_anyone = False
+                    for user in users:
+                        if has_been_notified(conn, user["chat_id"], item["source"], item["external_id"]):
+                            continue
+                        if not matches_user_filter(user["chat_id"], item["title"]):
+                            continue
+                        try:
+                            send_message(message, parse_mode="HTML", chat_id=user["chat_id"])
+                            mark_notified(conn, user["chat_id"], item["source"], item["external_id"])
+                            sent_to_anyone = True
+                        except Exception as exc:
+                            print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
+                        time.sleep(SECONDS_BETWEEN_MESSAGES)
+                    if sent_to_anyone:
+                        notified_count += 1
 
             if ADMIN_CHAT_ID and progress_message_id and checked_count % PROGRESS_EDIT_EVERY == 0:
                 try:

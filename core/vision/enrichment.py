@@ -305,14 +305,14 @@ def build_enrichment_message(
     else:
         sections.append("📋 Nessun dato riconosciuto")
 
+    if url:
+        escaped_url = html.escape(url, quote=True)
+        sections.append(f'🔗 <a href="{escaped_url}">Link {source.capitalize()}</a>')
+
     if candidate_blocks:
         sections.append("💿 <b>Discogs</b>\n" + "\n\n".join(candidate_blocks))
     else:
         sections.append("💿 Nessuna corrispondenza trovata su Discogs.")
-
-    if url:
-        escaped_url = html.escape(url, quote=True)
-        sections.append(f'🔗 <a href="{escaped_url}">Link {source.capitalize()}</a>')
 
     return "\n\n".join(sections), discount_pct
 

@@ -449,3 +449,11 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   (`MAX_LISTINGS_CHECKED_PER_RUN`), usati solo per le prove a basso volume
   — ora `None` (nessun limite), `/cerca` arricchisce e notifica tutti gli
   annunci nuovi/backlog trovati in un giro, non solo i primi 10.
+- **2026-07-24** — `/cerca` ora notifica SOLO i veri affari: sconto ≥50%
+  rispetto al prezzo Discogs "Good" (`UNDER_VALUE_THRESHOLD_PCT`). Gli
+  annunci con una corrispondenza Discogs ma sotto soglia (o senza sconto
+  calcolabile, es. valuta diversa da EUR) restano comunque salvati nel DB —
+  recuperabili con `/report` — semplicemente non generano un messaggio
+  Telegram. Riordinate anche le sezioni del messaggio: link eBay subito
+  dopo i dati riconosciuti (prima era in fondo, dopo Discogs), poi la
+  sezione Discogs con il proprio link in coda.
