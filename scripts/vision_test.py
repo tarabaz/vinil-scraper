@@ -148,15 +148,17 @@ def format_discogs_candidate(candidate: dict) -> str:
     if details:
         line += f" ({details})"
 
+    discogs_url = f"\n  https://www.discogs.com/release/{candidate['id']}"
+
     try:
         prices = get_price_suggestions(candidate["id"])
         low, high = price_range(prices)
     except requests.exceptions.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
-            return f"{line} — nessun prezzo disponibile su Discogs per questa edizione"
-        return f"{line} — prezzo non disponibile (errore Discogs: {exc})"
+            return f"{line} — nessun prezzo disponibile su Discogs per questa edizione{discogs_url}"
+        return f"{line} — prezzo non disponibile (errore Discogs: {exc}){discogs_url}"
     except Exception as exc:
-        return f"{line} — prezzo non disponibile ({exc})"
+        return f"{line} — prezzo non disponibile ({exc}){discogs_url}"
 
     if low and high:
         if low == high:
@@ -165,7 +167,7 @@ def format_discogs_candidate(candidate: dict) -> str:
             line += f" — prezzo Discogs: {low['value']}–{high['value']} {high['currency']}"
     else:
         line += " — nessun prezzo suggerito su Discogs"
-    return line
+    return line + discogs_url
 
 
 def build_summary_message(title: str, price, currency, url: str | None, merged: dict, candidates: list[dict]) -> str:

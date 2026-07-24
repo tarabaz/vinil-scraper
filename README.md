@@ -358,3 +358,7 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   più esplicito nel tenerli separati; (2) una release Discogs senza prezzi
   suggeriti dava 404 mostrato come errore grezzo — ora un messaggio pulito
   ("nessun prezzo disponibile per questa edizione")
+- **2026-07-24** — Aggiunto `VISION_TEST_OFFSET` per testare annunci diversi
+  dal primo, e il link diretto alla pagina Discogs (`discogs.com/release/id`)
+  per ogni candidato nel messaggio Telegram, per poter confrontare a colpo
+  d'occhio se la corrispondenza trovata è quella giusta
