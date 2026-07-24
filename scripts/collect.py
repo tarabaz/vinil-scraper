@@ -18,11 +18,12 @@ from core.settings import get_setting
 SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti messaggi consecutivi
 
 DEFAULT_ENABLED_MARKETPLACES = ["ebay", "subito"]
+DEFAULT_SEARCH_MODES = ["lotti", "singoli"]
+DEFAULT_EBAY_CATEGORY = "Vinili"
 
-# Ricerche per marketplace: generi/artisti diretti (occasioni dove il titolo
-# li nomina) + lotti "anonimi" (dove possono nascondersi le occasioni migliori,
-# perché il venditore non sa cosa c'è dentro — nessun filtro per genere apposta).
-QUERIES_BY_MARKETPLACE = {
+# Ricerche mirate: generi/artisti diretti (occasioni dove il titolo li nomina).
+# Attive solo se "singoli" è tra i tipi di ricerca abilitati.
+GENRE_QUERIES_BY_MARKETPLACE = {
     "ebay": [
         "AC/DC vinyl",
         "Metallica vinyl",
@@ -32,9 +33,6 @@ QUERIES_BY_MARKETPLACE = {
         "rock vinyl record",
         "metal vinyl record",
         "vinile pop italiano",
-        "vinyl record lot",
-        "lotto vinili",
-        "vinyl collection",
     ],
     "subito": [
         "AC/DC vinile",
@@ -45,10 +43,15 @@ QUERIES_BY_MARKETPLACE = {
         "vinile rock",
         "vinile metal",
         "vinile pop italiano",
-        "lotto vinili",
-        "lotto dischi vinile",
-        "collezione vinili",
     ],
+}
+
+# Ricerche su lotti "anonimi": qui possono nascondersi le occasioni migliori,
+# perché il venditore non sa cosa c'è dentro. Attive solo se "lotti" è tra i
+# tipi di ricerca abilitati.
+LOT_QUERIES_BY_MARKETPLACE = {
+    "ebay": ["vinyl record lot", "lotto vinili", "vinyl collection"],
+    "subito": ["lotto vinili", "lotto dischi vinile", "collezione vinili"],
 }
 
 
@@ -121,14 +124,19 @@ if __name__ == "__main__":
     print(f"Pulizia DB: rimossi {removed} annunci non visti da più di {RETENTION_HOURS} ore.\n")
 
     enabled_marketplaces = get_setting("marketplaces.enabled", DEFAULT_ENABLED_MARKETPLACES)
-    print(f"Marketplace abilitati: {enabled_marketplaces}\n")
+    search_modes = get_setting("search.modes", DEFAULT_SEARCH_MODES)
+    print(f"Marketplace abilitati: {enabled_marketplaces}")
+    print(f"Tipi di ricerca abilitati: {search_modes}\n")
 
-    # eBay ha bisogno di un lookup una tantum della categoria; è l'unico
-    # marketplace che oggi richiede questo passaggio in più.
+    # eBay ha bisogno di un lookup una tantum della categoria, solo se
+    # l'impostazione richiede di restringere la ricerca a "Vinili".
     ebay_category_id = None
-    if "ebay" in enabled_marketplaces:
+    ebay_category_setting = get_setting("marketplace.ebay.category", DEFAULT_EBAY_CATEGORY)
+    if "ebay" in enabled_marketplaces and ebay_category_setting == DEFAULT_EBAY_CATEGORY:
         ebay_category_id = find_category_id("Vinyl Records")
         print(f"Categoria eBay usata per le ricerche: {ebay_category_id}\n")
+    elif "ebay" in enabled_marketplaces:
+        print(f"Categoria eBay: '{ebay_category_setting}', nessuna restrizione applicata.\n")
 
     for marketplace in enabled_marketplaces:
         if marketplace not in REGISTRY:
@@ -136,7 +144,11 @@ if __name__ == "__main__":
             continue
 
         collector = REGISTRY[marketplace]()
-        queries = QUERIES_BY_MARKETPLACE.get(marketplace, [])
+        queries = []
+        if "singoli" in search_modes:
+            queries += GENRE_QUERIES_BY_MARKETPLACE.get(marketplace, [])
+        if "lotti" in search_modes:
+            queries += LOT_QUERIES_BY_MARKETPLACE.get(marketplace, [])
 
         for query in queries:
             print(f"\n=== [{marketplace}] Ricerca: {query} ===")

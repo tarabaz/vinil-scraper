@@ -2,3 +2,4 @@ python-dotenv
 requests
 pyyaml
 beautifulsoup4
+python-telegram-bot
