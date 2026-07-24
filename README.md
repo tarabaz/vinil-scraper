@@ -134,7 +134,8 @@ vinil-scraper/
 │   ├── user_filters.py           # filtri personali per utente approvato
 │   ├── notifications.py          # tracking annunci già notificati per utente
 │   ├── vision/
-│   │   └── matching.py          # fusione multi-foto + confidenza (dischi)
+│   │   ├── matching.py          # fusione multi-foto + confidenza (dischi)
+│   │   └── ollama_vision.py     # riconoscimento locale via Ollama (qwen2.5vl)
 │   └── collectors/
 │       ├── base.py              # tipo Listing + interfaccia Collector
 │       ├── registry.py          # mappa marketplace -> classe collector
@@ -146,7 +147,8 @@ vinil-scraper/
 │   ├── send_test_message.py      # test rapido del bot
 │   └── settings_menu.py          # menu impostazioni a bottoni (processo persistente)
 └── scripts/
-    └── collect.py                # pipeline: cerca (marketplace abilitati) → filtra → salva → notifica
+    ├── collect.py                # pipeline: cerca (marketplace abilitati) → filtra → salva → notifica
+    └── vision_test.py            # test manuale riconoscimento vision (limite 2 annunci)
 ```
 
 ## Setup
@@ -208,6 +210,17 @@ Test del client Discogs (ricerca per titolo e per codice catalogo):
 
 ```bash
 python -m core.collectors.discogs
+```
+
+Test del riconoscimento vision locale (richiede [Ollama](https://ollama.com)
+installato e in esecuzione, con un modello vision scaricato — testato con
+`ollama pull qwen2.5vl`): prende al massimo 2 annunci già nel DB (limite
+volutamente basso, `VISION_TEST_LIMIT` in `scripts/vision_test.py`), scarica
+la loro foto e stampa cosa riconosce il modello. Non fa parte della
+pipeline automatica, non invia notifiche:
+
+```bash
+python -m scripts.vision_test
 ```
 
 Pipeline completa — cerca sui marketplace abilitati (eBay + Subito di
@@ -313,3 +326,9 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   bot: `/start`, `/impostazioni`, `/cerca`) e testi del menu più chiari
   (spiegazione breve in cima a menu principale, filtri personali, gestione
   utenti)
+- **2026-07-24** — Primo collegamento della fase vision: riconoscimento
+  locale via un modello vision servito da Ollama (`core/vision/ollama_vision.py`,
+  testato con `qwen2.5vl` — legge correttamente tracklist, codice catalogo e
+  codice a barre da una foto reale). Script di solo test manuale
+  (`scripts/vision_test.py`, limite bassissimo di 2 annunci per prova) — non
+  è ancora collegato alla pipeline automatica né alla ricerca Discogs
