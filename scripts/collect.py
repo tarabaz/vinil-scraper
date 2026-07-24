@@ -21,6 +21,14 @@ from core.users import ensure_admin_registered, list_approved
 
 SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti messaggi consecutivi
 
+# LIMITE TEMPORANEO per le prove: la ricerca reale può trovare centinaia di
+# annunci nuovi al primo giro (il DB parte vuoto), che diventerebbero
+# altrettanti messaggi Telegram. Finché si sta testando, cap totale di
+# messaggi inviati per esecuzione — gli annunci oltre il limite restano
+# comunque salvati nel DB (non si perdono), semplicemente non notificati
+# in questo giro. Da alzare/rimuovere quando si passa all'uso reale.
+MAX_NOTIFICATIONS_PER_RUN = 5
+
 DEFAULT_ENABLED_MARKETPLACES = ["ebay", "subito"]
 DEFAULT_SEARCH_MODES = ["lotti", "singoli"]
 DEFAULT_EBAY_CATEGORY = "Vinili"
@@ -52,21 +60,37 @@ def build_message(item: dict) -> str:
 def notify_new_listings(new_listings: list[dict]) -> None:
     """Ricerca unica e globale: ogni utente approvato riceve solo gli
     annunci che passano anche il proprio filtro personale (nessun filtro
-    personale impostato = riceve tutto)."""
+    personale impostato = riceve tutto). Il totale dei messaggi inviati in
+    questa esecuzione è limitato da MAX_NOTIFICATIONS_PER_RUN."""
     users = list_approved()
     if not users or not new_listings:
         return
 
+    sent_count = 0
+    capped = False
     for item in new_listings:
         message = build_message(item)
         for user in users:
+            if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
+                capped = True
+                break
             if not matches_user_filter(user["chat_id"], item["title"]):
                 continue
             try:
                 send_message(message, parse_mode="HTML", chat_id=user["chat_id"])
             except Exception as exc:
                 print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
+            sent_count += 1
             time.sleep(SECONDS_BETWEEN_MESSAGES)
+        if capped:
+            break
+
+    if capped:
+        print(
+            f"\n⚠️  Limite di {MAX_NOTIFICATIONS_PER_RUN} notifiche per esecuzione raggiunto: "
+            "il resto dei nuovi annunci non è stato inviato su Telegram in questo giro "
+            "(restano comunque salvati nel DB)."
+        )
 
 
 def collect(collector, query: str, category: str = "vinyl", **search_settings) -> None:

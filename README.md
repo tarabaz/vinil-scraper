@@ -263,6 +263,10 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   d'accesso per nuovi utenti, filtri personali per utente ("🔍 I miei
   filtri") applicati sopra la ricerca globale unica, menu "👥 Gestisci
   utenti" per l'amministratore
+- **2026-07-24** — Limite temporaneo di 5 notifiche Telegram per esecuzione
+  di `scripts.collect` (`MAX_NOTIFICATIONS_PER_RUN`), per fare prove senza
+  intasarsi di messaggi al primo giro con DB vuoto — gli annunci oltre il
+  limite restano comunque salvati nel DB
 - **2026-07-24** — Ricerca per codice catalogo restringibile per paese/anno
 - **2026-07-24** — Ricerca eBay ristretta alla categoria ufficiale vinili (Taxonomy API)
 - **2026-07-24** — Fusione multi-foto e sistema di confidenza per i dischi rilevati (`core/vision/matching.py`)
