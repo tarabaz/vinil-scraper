@@ -14,6 +14,10 @@ EBAY_CERT_ID = os.getenv("EBAY_CERT_ID")
 
 TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+CATEGORY_TREE_ID_URL = "https://api.ebay.com/commerce/taxonomy/v1/get_default_category_tree_id"
+CATEGORY_SUGGESTIONS_URL_TEMPLATE = (
+    "https://api.ebay.com/commerce/taxonomy/v1/category_tree/{tree_id}/get_category_suggestions"
+)
 
 _token_cache = {"access_token": None, "expires_at": 0.0}
 
@@ -46,15 +50,56 @@ def get_access_token() -> str:
     return _token_cache["access_token"]
 
 
-def search_items(query: str, limit: int = 10, marketplace: str = "EBAY_IT") -> list[dict]:
+def find_category_id(query: str, marketplace: str = "EBAY_IT") -> str | None:
+    """Cerca l'ID di categoria eBay più adatto per una query (es. 'Vinyl Records'),
+    senza doverlo scrivere fisso e rischiare di sbagliarlo per marketplace."""
     token = get_access_token()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-EBAY-C-MARKETPLACE-ID": marketplace,
+    }
+
+    tree_response = requests.get(
+        CATEGORY_TREE_ID_URL,
+        headers=headers,
+        params={"marketplace_id": marketplace},
+        timeout=10,
+    )
+    tree_response.raise_for_status()
+    tree_id = tree_response.json()["categoryTreeId"]
+
+    suggestions_response = requests.get(
+        CATEGORY_SUGGESTIONS_URL_TEMPLATE.format(tree_id=tree_id),
+        headers=headers,
+        params={"q": query},
+        timeout=10,
+    )
+    suggestions_response.raise_for_status()
+    suggestions = suggestions_response.json().get("categorySuggestions", [])
+
+    if not suggestions:
+        return None
+    return suggestions[0]["category"]["categoryId"]
+
+
+def search_items(
+    query: str,
+    limit: int = 10,
+    marketplace: str = "EBAY_IT",
+    category_ids: str | None = None,
+) -> list[dict]:
+    token = get_access_token()
+    params = {"q": query, "limit": limit}
+    if category_ids:
+        params["category_ids"] = category_ids
+
     response = requests.get(
         SEARCH_URL,
         headers={
             "Authorization": f"Bearer {token}",
             "X-EBAY-C-MARKETPLACE-ID": marketplace,
         },
-        params={"q": query, "limit": limit},
+        params=params,
         timeout=10,
     )
     response.raise_for_status()
@@ -80,6 +125,9 @@ def search_items(query: str, limit: int = 10, marketplace: str = "EBAY_IT") -> l
 
 
 if __name__ == "__main__":
-    items = search_items("vinyl record", limit=5)
+    category_id = find_category_id("Vinyl Records")
+    print(f"ID categoria trovato per 'Vinyl Records': {category_id}")
+
+    items = search_items("vinyl record", limit=5, category_ids=category_id)
     for item in items:
         print(f"{item['title']} — {item['price']} {item['currency']} — {item['url']}")

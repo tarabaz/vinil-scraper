@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 
 from bot.notifier import send_message
-from core.collectors.ebay import search_items
+from core.collectors.ebay import find_category_id, search_items
 from core.db import get_connection, insert_listing
 from core.filters import load_rules, passes_filters
 
@@ -63,10 +63,12 @@ def notify_new_listings(new_listings: list[dict]) -> None:
         time.sleep(SECONDS_BETWEEN_MESSAGES)
 
 
-def collect(query: str, category: str = "vinyl", limit: int = 50) -> None:
+def collect(
+    query: str, category: str = "vinyl", limit: int = 50, category_ids: str | None = None
+) -> None:
     conn = get_connection()
     rules = load_rules(category)
-    items = search_items(query, limit=limit)
+    items = search_items(query, limit=limit, category_ids=category_ids)
 
     new_listings = []
     duplicate_count = 0
@@ -106,6 +108,9 @@ def collect(query: str, category: str = "vinyl", limit: int = 50) -> None:
 
 
 if __name__ == "__main__":
+    category_id = find_category_id("Vinyl Records")
+    print(f"Categoria eBay usata per tutte le ricerche: {category_id}\n")
+
     for query in QUERIES:
         print(f"\n=== Ricerca: {query} ===")
-        collect(query)
+        collect(query, category_ids=category_id)
