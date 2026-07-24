@@ -20,6 +20,7 @@ import requests
 from core.collectors.discogs import get_price_suggestions, search_by_catalog_number, search_release
 from core.collectors.ebay import get_item_images
 from core.db import insert_vision_result
+from core.user_filters import matches_user_filter
 from core.vision.ollama_vision import FIELDS, recognize_image
 
 MERGE_FIELDS = [f for f in FIELDS if f != "other_text"]
@@ -336,15 +337,23 @@ def format_digest_line(title: str, price, currency, merged: dict, candidates: li
     return f"🎵 {html.escape(label)}{html.escape(catalog_part)} | eBay: {price} {currency} | Discogs (Good): {good_text}"
 
 
-def generate_digest(conn, limit: int) -> list[str]:
+def generate_digest(conn, limit: int, chat_id: int | None = None) -> list[str]:
     """Righe sintetiche per gli annunci GIÀ nel DB (niente ricerca nuova sui
     marketplace) che hanno una corrispondenza Discogs, usando solo dati già
     noti (titolo o cache di vision_results — NON fa vision fresca, per
-    restare veloce e senza costo su un check che può girare spesso)."""
+    restare veloce e senza costo su un check che può girare spesso).
+
+    chat_id=None mostra tutto, senza applicare nessun filtro personale
+    (report "globale"). Se passato, mostra solo gli annunci che
+    corrispondono al filtro personale di quell'utente (report "i miei
+    filtri")."""
     rows = conn.execute("SELECT source, external_id, title, price, currency FROM listings ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
 
     lines = []
     for source, external_id, title, price, currency in rows:
+        if chat_id is not None and not matches_user_filter(chat_id, title):
+            continue
+
         hints = parse_title_hints(title)
         if hints.get("artist") and hints.get("album_title"):
             merged = {field: None for field in MERGE_FIELDS}

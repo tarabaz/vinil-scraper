@@ -433,3 +433,11 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   `bot/notifier.send_message` ora ritorna il `message_id` e nuova
   `edit_message()` per aggiornare un messaggio già inviato invece di
   mandarne uno nuovo ogni volta.
+- **2026-07-24** — Nuovi comandi `/report` (solo amministratore) e
+  `/report_miei`: un check SOLO sul DB già filtrato (nessuna ricerca nuova
+  sui marketplace, nessuna vision fresca — usa solo dati già noti da titolo
+  o cache) che elenca tutti gli annunci con una corrispondenza Discogs, una
+  riga sintetica ciascuno (titolo, album, codice catalogo, prezzo eBay,
+  prezzo Discogs Good), a prescindere dallo sconto. `/report` mostra tutto,
+  `/report_miei` applica il filtro personale di chi lo lancia. Separato
+  apposta da `/cerca`, che invece fa ricerca+arricchimento veri.

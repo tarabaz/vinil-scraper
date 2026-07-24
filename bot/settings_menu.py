@@ -34,6 +34,7 @@ from telegram.ext import (
 )
 from telegram.ext import filters as tg_filters
 
+from core.db import get_connection
 from core.filters import load_yaml_rules
 from core.keywords import add_keyword, get_keywords, toggle_keyword
 from core.query_defaults import DEFAULT_GENRE_QUERIES, DEFAULT_LOT_QUERIES
@@ -51,6 +52,7 @@ from core.users import (
     reject_user,
     request_access,
 )
+from core.vision.enrichment import generate_digest
 from scripts.collect import run_collection
 
 load_dotenv()
@@ -64,6 +66,9 @@ EBAY_CATEGORY_OPTIONS = ["Vinili", "Tutte le categorie"]
 DEFAULT_ENABLED_MARKETPLACES = ["ebay", "subito"]
 DEFAULT_SEARCH_MODES = ["lotti", "singoli"]
 DEFAULT_EBAY_CATEGORY = "Vinili"
+
+DIGEST_LIMIT = 30  # quanti annunci (i più recenti) considerare per /report e /report_miei
+TELEGRAM_MESSAGE_CHUNK_SIZE = 3500  # sotto il limite di 4096 caratteri di Telegram, margine di sicurezza
 
 MAIN_MENU_TEXT = (
     "⚙️ Impostazioni vinil-scraper\n"
@@ -80,6 +85,8 @@ BOT_COMMANDS = [
     BotCommand("start", "Apri il menu impostazioni"),
     BotCommand("impostazioni", "Apri il menu impostazioni (uguale a /start)"),
     BotCommand("cerca", "Avvia subito una ricerca (solo amministratore)"),
+    BotCommand("report", "Report di tutti gli annunci con dati riconosciuti (solo amministratore)"),
+    BotCommand("report_miei", "Report degli annunci che corrispondono ai tuoi filtri personali"),
 ]
 KEYWORD_CATEGORIES_TEXT = (
     "🔑 Parole chiave (ricerca globale)\n"
@@ -303,6 +310,55 @@ async def cerca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await _run_search_now(update, context, update.effective_chat.id)
 
 
+def _digest_lines(chat_id: int | None) -> list[str]:
+    """Apre la propria connessione DB — va chiamata via asyncio.to_thread,
+    non si può riusare una connessione sqlite aperta in un altro thread."""
+    conn = get_connection()
+    try:
+        return generate_digest(conn, DIGEST_LIMIT, chat_id)
+    finally:
+        conn.close()
+
+
+async def _send_digest_report(context: ContextTypes.DEFAULT_TYPE, chat_id: int, personal: bool) -> None:
+    """Report SOLO sul DB già filtrato: nessuna ricerca nuova sui
+    marketplace, nessuna vision fresca — solo dati già noti (titolo o
+    cache). personal=True applica il filtro personale del chiamante,
+    personal=False mostra tutto."""
+    label = "i tuoi filtri personali" if personal else "tutti gli annunci"
+    await context.bot.send_message(chat_id=chat_id, text=f"📊 Preparazione report ({label})...")
+
+    lines = await asyncio.to_thread(_digest_lines, chat_id if personal else None)
+
+    if not lines:
+        await context.bot.send_message(chat_id=chat_id, text="Nessun annuncio con dati riconosciuti trovato al momento.")
+        return
+
+    chunk = f"📊 Report ({label}) — {len(lines)} annunci:\n\n"
+    for line in lines:
+        if len(chunk) + len(line) + 1 > TELEGRAM_MESSAGE_CHUNK_SIZE:
+            await context.bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
+            chunk = ""
+        chunk += line + "\n"
+    if chunk.strip():
+        await context.bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
+
+
+async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    if not is_admin(chat_id):
+        await context.bot.send_message(chat_id=chat_id, text="Solo l'amministratore può usare questo comando.")
+        return
+    await _send_digest_report(context, chat_id, personal=False)
+
+
+async def report_miei_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    if not is_approved(chat_id):
+        return
+    await _send_digest_report(context, chat_id, personal=True)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     username = update.effective_user.username if update.effective_user else None
@@ -469,6 +525,8 @@ def main() -> None:
     app.add_handler(CommandHandler("impostazioni", start))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cerca", cerca_command))
+    app.add_handler(CommandHandler("report", report_command))
+    app.add_handler(CommandHandler("report_miei", report_miei_command))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(tg_filters.TEXT & ~tg_filters.COMMAND, handle_text))
 
