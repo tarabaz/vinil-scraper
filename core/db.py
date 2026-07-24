@@ -52,6 +52,21 @@ CREATE TABLE IF NOT EXISTS user_notifications (
     notified_at TEXT NOT NULL,
     PRIMARY KEY (chat_id, source, external_id)
 );
+
+CREATE TABLE IF NOT EXISTS vision_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    image_url TEXT NOT NULL,
+    artist TEXT,
+    album_title TEXT,
+    label TEXT,
+    catalog_number TEXT,
+    barcode TEXT,
+    other_text TEXT,
+    raw_response TEXT,
+    recognized_at TEXT NOT NULL
+);
 """
 
 
@@ -104,6 +119,48 @@ def insert_listing(
     is_new = bool(cursor.fetchone()[0])
     conn.commit()
     return is_new
+
+
+def insert_vision_result(
+    conn: sqlite3.Connection,
+    *,
+    source: str,
+    external_id: str,
+    image_url: str,
+    artist: str | None = None,
+    album_title: str | None = None,
+    label: str | None = None,
+    catalog_number: str | None = None,
+    barcode: str | None = None,
+    other_text: str | None = None,
+    raw_response: str | None = None,
+) -> None:
+    """Salva cosa ha riconosciuto il modello vision in una foto. Una riga per
+    foto (non per annuncio): un annuncio con più foto può avere più righe,
+    ognuna con i dati letti in quella foto specifica (es. fronte = artista/
+    titolo, retro = etichetta/codice catalogo/barcode)."""
+    conn.execute(
+        """
+        INSERT INTO vision_results
+            (source, external_id, image_url, artist, album_title, label,
+             catalog_number, barcode, other_text, raw_response, recognized_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            source,
+            external_id,
+            image_url,
+            artist,
+            album_title,
+            label,
+            catalog_number,
+            barcode,
+            other_text,
+            raw_response,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
 
 
 def cleanup_old_listings(conn: sqlite3.Connection, retention_hours: float = RETENTION_HOURS) -> int:

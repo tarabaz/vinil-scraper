@@ -336,5 +336,11 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   nel DB (una per annuncio) invece di tutte le foto in alta risoluzione —
   nuova `core/collectors/ebay.get_item_images()` (chiamata `getItem`,
   fronte/retro/etichetta) con tetto `MAX_IMAGES_PER_LISTING` per non
-  processare decine di foto di un lotto in una prova — non ancora verificata
-  contro l'API eBay reale
+  processare decine di foto di un lotto in una prova — verificata contro
+  l'API eBay reale (5 foto recuperate per un annuncio, trovato un codice
+  catalogo reale sul retro)
+- **2026-07-24** — Il riconoscimento vision ora risponde in JSON strutturato
+  a campi fissi (artista, titolo album, etichetta, codice catalogo,
+  barcode, altro) invece di descrizioni in prosa — salvato nel DB (nuova
+  tabella `vision_results`, una riga per foto) e stampato come riga
+  sintetica invece del testo lungo di prima
