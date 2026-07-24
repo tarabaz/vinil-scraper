@@ -1,62 +1,98 @@
 # vinil-scraper
 
-Tool che monitora marketplace (eBay, poi Subito e Vinted) per trovare lotti di
-vinili sottoprezzati, li filtra con regole deterministiche, arricchisce i
-prezzi via Discogs e in futuro userà un layer AI (vision, a cascata
-locale/cloud) solo dove serve. Notifica i risultati su Telegram. In futuro
-anche CD e carte Pokémon.
+Tool multi-marketplace (eBay, Subito, in futuro Vinted/Wallapop/Kleinanzeigen)
+che monitora lotti di vinili sottoprezzati, li filtra con regole
+deterministiche, arricchisce i prezzi via Discogs e in futuro userà un layer
+AI (vision, a cascata locale/cloud) solo dove serve. Notifica i risultati su
+Telegram, configurabile da un menu a bottoni nel bot stesso. In futuro anche
+CD e carte Pokémon.
 
 Il progetto è costruito un pezzo alla volta, partendo sempre dal pezzo più
 piccolo che funziona.
 
 ## Stato attuale
 
-- ✅ Bot Telegram (invio messaggi, con supporto HTML per link cliccabili)
-- ✅ Storage SQLite con dedup per annuncio (`source` + `external_id`)
-- ✅ Collector eBay (Browse API ufficiale), ricerca ristretta alla categoria
-  vinili trovata dinamicamente via Taxonomy API
+- ✅ Bot Telegram (notifiche con link cliccabili HTML)
+- ✅ Storage SQLite con dedup per annuncio (`source` + `external_id`) e
+  **retention automatica**: gli annunci non più visti da `RETENTION_HOURS`
+  (default 48h) vengono rimossi da soli; un annuncio ancora attivo non scade
+  mai perché viene "ravvivato" a ogni esecuzione
+- ✅ **Architettura multi-marketplace**: tipo `Listing` unificato e interfaccia
+  `Collector` comune — la pipeline (filtri, DB, notifiche) non sa da quale
+  marketplace viene un annuncio
+- ✅ Collector eBay (Browse API ufficiale), categoria vinili trovata
+  dinamicamente via Taxonomy API
+- ✅ Collector Subito (scraping dati strutturati schema.org/JSON-LD) — ⚠️ non
+  ufficiale, non ancora verificato contro il sito reale
 - ✅ Filtri a regole YAML per categoria (blacklist per parola intera, nessun
   tetto di prezzo assoluto)
 - ✅ Client Discogs: ricerca per artista/titolo, ricerca per codice catalogo
-  (con filtro opzionale paese/anno), prezzi suggeriti per condizione
-- ✅ Pipeline end-to-end: eBay → filtri → dedup → notifica Telegram
+  (con filtro opzionale paese/anno — il codice non è garantito univoco tra
+  edizioni), prezzi suggeriti per condizione
+- ✅ **Menu impostazioni su Telegram** (bottoni inline, processo persistente
+  separato): marketplace attivi, tipo ricerca (lotti/singoli), categoria
+  eBay, e gestione delle **parole chiave** (di ricerca e di esclusione) —
+  sospendibili/riattivabili con un tocco, aggiungibili scrivendo un messaggio
+- ✅ Fusione multi-foto e sistema di confidenza (`core/vision/matching.py`):
+  la logica che unirà i dati letti da foto diverse dello stesso disco in
+  un'unica voce — pronta, non ancora collegata a un detector/OCR reale
+- ✅ Pipeline end-to-end: marketplace abilitati → filtri → dedup → notifica
 
-**Non ancora implementato**: fase vision (locale via Ollama + escalation
-cloud), calcolo del margine reale (prezzo annuncio vs prezzo Discogs),
-contatore di spesa giornaliero, scheduling automatico ogni 10 minuti.
+**Non ancora implementato**: fase vision vera (detector per isolare i
+dischi nelle foto di lotti, OCR, escalation locale/cloud), arricchimento
+Discogs collegato alla pipeline (oggi "prezzo realistico" è un placeholder),
+calcolo del margine reale, contatore di spesa giornaliero, scheduling
+automatico ogni 10 minuti, collector Facebook Marketplace (escluso di
+proposito: nessuna API pubblica, rischio alto).
 
 ## Architettura
 
-- **Collector** per fonte: eBay Browse API (fatto), poi Subito e Vinted via
-  endpoint non ufficiali. Salvataggio in SQLite con dedup.
+- **Collector** per marketplace: eBay (Browse API, fatto), Subito (scraping
+  non ufficiale, fatto ma da verificare), Facebook Marketplace (escluso per
+  ora). Ogni collector implementa `search()` e ritorna sempre `Listing`
+  (`core/collectors/base.py`) — aggiungere un marketplace futuro (Vinted,
+  Wallapop, Kleinanzeigen...) è un nuovo file collector + una riga nel
+  registro (`core/collectors/registry.py`), senza toccare il resto.
 - **Filtri a regole** in YAML per categoria (blacklist, prezzo/pezzo, soglie):
   girano prima di qualsiasi AI. Niente whitelist per genere/artista di
   proposito: un venditore che non sa cosa vende non scrive l'artista nel
   titolo, quindi filtrare per genere scarterebbe proprio le occasioni nei
-  lotti "anonimi" che interessano di più.
+  lotti "anonimi" che interessano di più. La blacklist è modificabile a
+  runtime dal menu Telegram (sospendere/aggiungere parole).
+- **Impostazioni** (`core/settings.py`): schema statico in YAML (cosa esiste,
+  editato da chi sviluppa) + stato mutabile in SQLite (cosa è scelto ora,
+  modificabile dal bot senza toccare file).
 - **Arricchimento prezzi** via Discogs API (deterministico, niente AI). Il
   codice catalogo di un disco non è garantito univoco (la stessa etichetta
   europea può riusarlo in più paesi, le ristampe a volte riusano il codice
   originale): la ricerca ritorna tutti i candidati trovati, mai una media tra
   prezzi di edizioni diverse.
-- **Fase vision a cascata** (da fare): prima modello locale via Ollama,
-  escalation a modello cloud solo se bassa confidenza o valore stimato alto.
-  Il modello legge il testo visibile nella foto (OCR-style) e cerca su
-  Discogs per testo — il "riconoscimento" vero lo fa la ricerca testuale
-  deterministica, non l'AI a naso.
+- **Fase vision a cascata** (da fare): detector (zero-shot, tipo Grounding
+  DINO/YOLO-World) per isolare i singoli dischi nelle foto di lotti affollati,
+  OCR dedicato per leggere testo, poi ricerca Discogs testuale — il
+  "riconoscimento" vero lo fa la ricerca testuale deterministica, non l'AI a
+  naso. Escalation a modello locale (Ollama) poi cloud solo se bassa
+  confidenza. La fusione multi-foto (`core/vision/matching.py`, già fatta)
+  unisce i dati parziali letti da foto diverse dello stesso disco in un'unica
+  voce, distinguendo copie fisiche reali (stesso disco visto due volte nella
+  stessa foto) da fotografie multiple dello stesso esemplare.
 - **Layer AI astratto** (da fare): provider e modello configurabili in
   `.env`, mai hardcoded.
 - **Contatore di spesa giornaliero** (da fare): superata la soglia, la fase
   AI cloud si disattiva fino al giorno dopo.
 - **Notifiche Telegram**: un messaggio per annuncio nuovo, con link cliccabile
-  invece dell'URL per esteso. Per i lotti con più dischi riconosciuti: dettaglio
-  completo (codice, paese/lingua, etichetta, prezzo Discogs, link alla release)
-  solo per i dischi che superano la soglia di margine; gli altri riassunti in
-  una riga sola.
+  invece dell'URL per esteso. Per i lotti con più dischi riconosciuti (da
+  fare): dettaglio completo (codice, paese/lingua, etichetta, prezzo Discogs,
+  link alla release) solo per i dischi che superano la soglia di margine; gli
+  altri riassunti in una riga sola.
+- **Menu impostazioni Telegram** (`bot/settings_menu.py`): processo separato
+  e persistente (non uno script periodico) con bottoni inline per marketplace
+  attivi, tipo ricerca, categoria eBay, e gestione parole chiave.
 - **Scheduling** (da fare): ogni 10 minuti + heartbeat giornaliero.
 
-Il core è pensato per essere indipendente dalla categoria; vinili, CD e carte
-Pokémon saranno plugin che definiscono le proprie regole e arricchimenti.
+Il core è pensato per essere indipendente da marketplace e categoria; vinili,
+CD e carte Pokémon saranno plugin che definiscono le proprie regole e
+arricchimenti.
 
 ## Ambiente
 
@@ -69,19 +105,28 @@ via `localhost:11434`).
 
 ```
 vinil-scraper/
-├── .env.example              # template chiavi API (mai committare .env)
-├── config/categories/        # regole YAML per categoria (es. vinyl.yaml)
+├── .env.example                 # template chiavi API (mai committare .env)
+├── config/categories/           # regole YAML per categoria (es. vinyl.yaml)
 ├── core/
-│   ├── db.py                 # storage SQLite + dedup
-│   ├── filters.py            # filtri a regole (blacklist, prezzo)
+│   ├── db.py                    # storage SQLite, dedup, retention/pulizia
+│   ├── settings.py              # impostazioni mutabili a runtime (SQLite)
+│   ├── keywords.py               # parole chiave sospendibili/aggiungibili
+│   ├── query_defaults.py        # liste di query di default per marketplace
+│   ├── filters.py               # filtri a regole (blacklist, prezzo)
+│   ├── vision/
+│   │   └── matching.py          # fusione multi-foto + confidenza (dischi)
 │   └── collectors/
-│       ├── ebay.py           # eBay Browse API (OAuth, ricerca, categoria)
-│       └── discogs.py        # ricerca release + prezzi per condizione
+│       ├── base.py              # tipo Listing + interfaccia Collector
+│       ├── registry.py          # mappa marketplace -> classe collector
+│       ├── ebay.py              # eBay Browse API (OAuth, ricerca, categoria)
+│       ├── subito.py            # Subito (scraping JSON-LD, non ufficiale)
+│       └── discogs.py           # ricerca release + prezzi per condizione
 ├── bot/
-│   ├── notifier.py           # invio messaggi Telegram
-│   └── send_test_message.py  # test rapido del bot
+│   ├── notifier.py               # invio messaggi Telegram
+│   ├── send_test_message.py      # test rapido del bot
+│   └── settings_menu.py          # menu impostazioni a bottoni (processo persistente)
 └── scripts/
-    └── collect_ebay.py       # pipeline: cerca → filtra → salva → notifica
+    └── collect.py                # pipeline: cerca (marketplace abilitati) → filtra → salva → notifica
 ```
 
 ## Setup
@@ -111,6 +156,11 @@ solo lì.
   [discogs.com/settings/developers](https://www.discogs.com/settings/developers)
   → "Genera token".
 
+### Altre variabili (`.env`)
+
+- `RETENTION_HOURS` (default `48`): dopo quante ore un annuncio non più visto
+  viene rimosso dal DB.
+
 ## Uso
 
 Test del bot Telegram:
@@ -125,19 +175,61 @@ Test del collector eBay (ricerca + categoria vinili):
 python -m core.collectors.ebay
 ```
 
+Test del collector Subito (⚠️ non verificato contro il sito reale):
+
+```bash
+python -m core.collectors.subito
+```
+
 Test del client Discogs (ricerca per titolo e per codice catalogo):
 
 ```bash
 python -m core.collectors.discogs
 ```
 
-Pipeline completa — cerca su eBay (più query: generi/artisti diretti + lotti
-generici), applica i filtri, salva i nuovi annunci nel DB, notifica su
-Telegram:
+Pipeline completa — cerca sui marketplace abilitati (eBay + Subito di
+default), applica i filtri, salva i nuovi annunci nel DB, notifica su
+Telegram, pulisce gli annunci scaduti:
 
 ```bash
-python -m scripts.collect_ebay
+python -m scripts.collect
 ```
 
-Il DB SQLite (`data/listings.db`) tiene traccia di cosa è già stato notificato,
-quindi le esecuzioni successive segnalano solo i nuovi annunci.
+Il DB SQLite (`data/listings.db`) tiene traccia di cosa è già stato
+notificato, quindi le esecuzioni successive segnalano solo i nuovi annunci.
+
+Menu impostazioni su Telegram — **processo separato e persistente**, va
+lasciato aperto in un terminale mentre lo si usa (non lanciato dallo
+scheduler dei collector):
+
+```bash
+python -m bot.settings_menu
+```
+
+Da lì, direttamente dal bot: abilita/disabilita marketplace, tipo di ricerca
+(lotti/singoli), categoria eBay, e gestisci le parole chiave di ricerca ed
+esclusione (sospendi/riattiva con un tocco, aggiungi scrivendo un messaggio).
+
+## Changelog
+
+Ogni riga indica quando è stata fatta la modifica (data del commit).
+
+- **2026-07-23** — Struttura iniziale del progetto, bot Telegram di test
+- **2026-07-23** — Storage SQLite con dedup per annuncio
+- **2026-07-23** — Collector eBay Browse API
+- **2026-07-23** — Collegamento eBay → DB con dedup
+- **2026-07-23** — Filtri a regole YAML per la categoria vinili
+- **2026-07-23** — Primo ciclo end-to-end: notifica Telegram sui nuovi annunci
+- **2026-07-23** — Notifiche individuali con data di pubblicazione dell'annuncio
+- **2026-07-23** — Filtri vinili allineati alla strategia reale (caccia a lotti sottoprezzati, nessuna whitelist per genere)
+- **2026-07-23** — Corretti falsi positivi nel filtro blacklist (confronto a parola intera)
+- **2026-07-24** — Messaggio Telegram riformattato: link cliccabile, campo prezzo realistico
+- **2026-07-24** — Client Discogs: prezzi per condizione
+- **2026-07-24** — Client Discogs: ricerca per codice catalogo
+- **2026-07-24** — Ricerca per codice catalogo restringibile per paese/anno
+- **2026-07-24** — Ricerca eBay ristretta alla categoria ufficiale vinili (Taxonomy API)
+- **2026-07-24** — Fusione multi-foto e sistema di confidenza per i dischi rilevati (`core/vision/matching.py`)
+- **2026-07-24** — Retention configurabile con pulizia automatica del DB (`RETENTION_HOURS`)
+- **2026-07-24** — Architettura multi-marketplace: tipo `Listing` unificato, collector Subito
+- **2026-07-24** — Menu impostazioni Telegram (marketplace, tipo ricerca, categoria eBay)
+- **2026-07-24** — Gestione parole chiave (ricerca ed esclusione) dal menu Telegram
