@@ -1,5 +1,6 @@
 """Cerca annunci su eBay, li filtra a regole, salva nel DB i nuovi e notifica su Telegram."""
 
+import html
 import time
 from datetime import datetime
 
@@ -42,17 +43,23 @@ def format_listed_at(listed_at: str | None) -> str:
         return listed_at
 
 
+def build_message(item: dict) -> str:
+    title = html.escape(item["title"] or "")
+    url = html.escape(item["url"] or "", quote=True)
+    # TODO: quando avremo l'arricchimento Discogs, calcolare qui il prezzo
+    # realistico del disco (e più avanti la differenza/margine).
+    return (
+        f"🎵 {title}\n"
+        f"Prezzo annuncio: {item['price']} {item['currency']}\n"
+        f"Prezzo realistico: non disponibile\n"
+        f"Pubblicato: {format_listed_at(item.get('listed_at'))}\n"
+        f'<a href="{url}">Link Ebay</a>'
+    )
+
+
 def notify_new_listings(new_listings: list[dict]) -> None:
-    # TODO: quando avremo l'arricchimento Discogs, aggiungere qui prezzo reale
-    # del disco e differenza rispetto al prezzo dell'annuncio.
     for item in new_listings:
-        text = (
-            f"🎵 {item['title']}\n"
-            f"Prezzo annuncio: {item['price']} {item['currency']}\n"
-            f"Pubblicato: {format_listed_at(item.get('listed_at'))}\n"
-            f"{item['url']}"
-        )
-        send_message(text)
+        send_message(build_message(item), parse_mode="HTML")
         time.sleep(SECONDS_BETWEEN_MESSAGES)
 
 

@@ -12,12 +12,14 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
-def send_message(text: str) -> None:
+def send_message(text: str, parse_mode: str | None = None) -> None:
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         sys.exit("Errore: TELEGRAM_BOT_TOKEN e/o TELEGRAM_CHAT_ID non impostati in .env")
 
+    data = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+    if parse_mode:
+        data["parse_mode"] = parse_mode
+
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    response = requests.post(
-        url, data={"chat_id": TELEGRAM_CHAT_ID, "text": text}, timeout=10
-    )
+    response = requests.post(url, data=data, timeout=10)
     response.raise_for_status()
