@@ -27,6 +27,7 @@ from core.db import get_connection, insert_vision_result
 from core.vision.ollama_vision import FIELDS, recognize_image
 
 VISION_TEST_LIMIT = 2  # bassissimo apposta: è solo un test manuale
+VISION_TEST_OFFSET = 1  # salta il 1° annuncio (Nirvana, già testato) e prende il 2° e 3°
 MAX_IMAGES_PER_LISTING = 5  # un lotto può avere decine di foto, non le processiamo tutte in prova
 MAX_DISCOGS_CANDIDATES = 3  # un codice catalogo può corrispondere a più edizioni: le mostriamo tutte, non ne mediamo i prezzi
 
@@ -187,8 +188,9 @@ def build_summary_message(title: str, price, currency, url: str | None, merged: 
 def main() -> None:
     conn = get_connection()
     rows = conn.execute(
-        "SELECT source, external_id, title, price, currency, url, image_url FROM listings WHERE image_url IS NOT NULL LIMIT ?",
-        (VISION_TEST_LIMIT,),
+        "SELECT source, external_id, title, price, currency, url, image_url FROM listings "
+        "WHERE image_url IS NOT NULL ORDER BY id LIMIT ? OFFSET ?",
+        (VISION_TEST_LIMIT, VISION_TEST_OFFSET),
     ).fetchall()
 
     if not rows:
