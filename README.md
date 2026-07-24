@@ -267,6 +267,13 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   di `scripts.collect` (`MAX_NOTIFICATIONS_PER_RUN`), per fare prove senza
   intasarsi di messaggi al primo giro con DB vuoto — gli annunci oltre il
   limite restano comunque salvati nel DB
+- **2026-07-24** — `scripts.collect` ora aggrega i risultati di TUTTE le
+  query di ricerca prima di notificare, invece di notificare separatamente
+  dopo ogni query: le query restano multiple (servono a coprire formulazioni
+  diverse dello stesso annuncio, es. "vinile" vs "disco vinile" — le
+  marketplace API cercano per parola, non esiste un "dammi tutto"), ma sono
+  ricerca, non filtri; il filtro/dedup/notifica restano un unico passaggio
+  sui risultati aggregati
 - **2026-07-24** — Ricerca per codice catalogo restringibile per paese/anno
 - **2026-07-24** — Ricerca eBay ristretta alla categoria ufficiale vinili (Taxonomy API)
 - **2026-07-24** — Fusione multi-foto e sistema di confidenza per i dischi rilevati (`core/vision/matching.py`)

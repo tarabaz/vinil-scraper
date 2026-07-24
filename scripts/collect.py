@@ -57,29 +57,23 @@ def build_message(item: dict) -> str:
     )
 
 
-_notifications_sent = 0  # contatore globale: collect() (e quindi notify_new_listings)
-                          # viene chiamata una volta per ogni query, il limite deve
-                          # valere per l'intera esecuzione, non resettarsi ad ogni query
-_cap_warning_shown = False
-
-
 def notify_new_listings(new_listings: list[dict]) -> None:
-    """Ricerca unica e globale: ogni utente approvato riceve solo gli
-    annunci che passano anche il proprio filtro personale (nessun filtro
-    personale impostato = riceve tutto). Il totale dei messaggi inviati in
-    tutta l'esecuzione dello script è limitato da MAX_NOTIFICATIONS_PER_RUN."""
-    global _notifications_sent, _cap_warning_shown
-
+    """Va chiamata UNA SOLA VOLTA, con i nuovi annunci già aggregati da tutte
+    le query di ricerca. Ricerca unica e globale: ogni utente approvato
+    riceve solo gli annunci che passano anche il proprio filtro personale
+    (nessun filtro personale impostato = riceve tutto). Il totale dei
+    messaggi inviati è limitato da MAX_NOTIFICATIONS_PER_RUN."""
     users = list_approved()
     if not users or not new_listings:
         return
 
+    sent_count = 0
     for item in new_listings:
-        if _notifications_sent >= MAX_NOTIFICATIONS_PER_RUN:
+        if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
             break
         message = build_message(item)
         for user in users:
-            if _notifications_sent >= MAX_NOTIFICATIONS_PER_RUN:
+            if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
                 break
             if not matches_user_filter(user["chat_id"], item["title"]):
                 continue
@@ -87,19 +81,23 @@ def notify_new_listings(new_listings: list[dict]) -> None:
                 send_message(message, parse_mode="HTML", chat_id=user["chat_id"])
             except Exception as exc:
                 print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
-            _notifications_sent += 1
+            sent_count += 1
             time.sleep(SECONDS_BETWEEN_MESSAGES)
 
-    if _notifications_sent >= MAX_NOTIFICATIONS_PER_RUN and not _cap_warning_shown:
-        _cap_warning_shown = True
+    if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
         print(
-            f"\n⚠️  Limite di {MAX_NOTIFICATIONS_PER_RUN} notifiche per l'intera esecuzione raggiunto: "
-            "gli annunci nuovi successivi non vengono più inviati su Telegram in questo giro "
+            f"\n⚠️  Limite di {MAX_NOTIFICATIONS_PER_RUN} notifiche raggiunto: "
+            "il resto dei nuovi annunci non è stato inviato su Telegram in questo giro "
             "(restano comunque salvati nel DB)."
         )
 
 
-def collect(collector, query: str, category: str = "vinyl", **search_settings) -> None:
+def collect(collector, query: str, category: str = "vinyl", **search_settings) -> list[dict]:
+    """Cerca via una query, filtra, salva nel DB i nuovi. Ritorna solo la
+    lista dei nuovi annunci trovati DA QUESTA query — la notifica avviene
+    altrove (notify_new_listings), una sola volta, con tutte le query
+    aggregate: non ha senso notificare/ripetere la pipeline per ogni parola
+    di ricerca, sono solo formulazioni diverse della STESSA ricerca."""
     conn = get_connection()
     rules = load_rules(category)
     listings = collector.search(query, **search_settings)
@@ -129,7 +127,7 @@ def collect(collector, query: str, category: str = "vinyl", **search_settings) -
         f"{len(new_listings)} nuovi, {duplicate_count} già visti."
     )
 
-    notify_new_listings(new_listings)
+    return new_listings
 
 
 if __name__ == "__main__":
@@ -155,6 +153,8 @@ if __name__ == "__main__":
     elif "ebay" in enabled_marketplaces:
         print(f"Categoria eBay: '{ebay_category_setting}', nessuna restrizione applicata.\n")
 
+    all_new_listings = []
+
     for marketplace in enabled_marketplaces:
         if marketplace not in REGISTRY:
             print(f"Marketplace sconosciuto in REGISTRY, salto: {marketplace}")
@@ -174,4 +174,7 @@ if __name__ == "__main__":
         for query in queries:
             print(f"\n=== [{marketplace}] Ricerca: {query} ===")
             search_settings = {"category_ids": ebay_category_id} if marketplace == "ebay" else {}
-            collect(collector, query, **search_settings)
+            all_new_listings += collect(collector, query, **search_settings)
+
+    print(f"\n=== Ricerche completate: {len(all_new_listings)} annunci nuovi in totale, notifica in corso ===")
+    notify_new_listings(all_new_listings)
