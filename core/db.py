@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS listings (
     last_seen_at TEXT,
     UNIQUE(source, external_id)
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -45,7 +51,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
 def get_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
-    conn.execute(SCHEMA)
+    conn.executescript(SCHEMA)
     conn.commit()
     _migrate_schema(conn)
     return conn

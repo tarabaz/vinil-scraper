@@ -7,6 +7,8 @@ import time
 import requests
 from dotenv import load_dotenv
 
+from core.collectors.base import Listing
+
 load_dotenv()
 
 EBAY_APP_ID = os.getenv("EBAY_APP_ID")
@@ -122,6 +124,32 @@ def search_items(
             }
         )
     return results
+
+
+def _to_listing(item: dict) -> Listing:
+    return Listing(
+        source=item["source"],
+        external_id=item["external_id"],
+        title=item["title"],
+        price=item["price"],
+        currency=item["currency"],
+        url=item["url"],
+        image_urls=[item["image_url"]] if item.get("image_url") else [],
+        listed_at=item.get("listed_at"),
+    )
+
+
+class EbayCollector:
+    """Adatta le funzioni eBay esistenti all'interfaccia comune Collector."""
+
+    name = "ebay"
+
+    def search(self, query: str, **settings) -> list[Listing]:
+        limit = settings.get("limit", 50)
+        marketplace = settings.get("marketplace", "EBAY_IT")
+        category_ids = settings.get("category_ids")
+        items = search_items(query, limit=limit, marketplace=marketplace, category_ids=category_ids)
+        return [_to_listing(item) for item in items]
 
 
 if __name__ == "__main__":
