@@ -373,3 +373,8 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   l'affare) prima del titolo nel messaggio — per ora solo informativa, in
   futuro (a limiti di test rimossi) sarà il criterio per decidere se
   notificare o no un annuncio
+- **2026-07-24** — Messaggio Telegram di `vision_test` riformattato a
+  sezioni schematiche (titolo, dati riconosciuti, Discogs, link), ognuna
+  separata da una riga vuota e con intestazione in grassetto, invece di
+  tutto compresso su poche righe — ogni dato riconosciuto e ogni candidato
+  Discogs (numerati se più di uno) su blocchi propri

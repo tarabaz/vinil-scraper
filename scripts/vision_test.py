@@ -161,31 +161,36 @@ def get_reference_prices(release_id: int) -> dict:
     return {condition: round(prices[condition]["value"]) for condition in REFERENCE_CONDITIONS if condition in prices}
 
 
-def format_discogs_candidate(candidate: dict) -> tuple[str, dict]:
-    """Ritorna (testo formattato del candidato, prezzi di riferimento arrotondati)."""
+def format_discogs_candidate(candidate: dict, index: int) -> tuple[str, dict]:
+    """Ritorna (blocco di testo formattato del candidato, prezzi di riferimento arrotondati)."""
     details = " | ".join(
         html.escape(str(v))
         for v in (candidate.get("country"), candidate.get("year"), candidate.get("label"), candidate.get("catno"))
         if v
     )
-    line = html.escape(candidate.get("title") or "Release Discogs")
+    title_line = f"{index}. {html.escape(candidate.get('title') or 'Release Discogs')}"
+
+    block = [title_line]
     if details:
-        line += f" ({details})"
+        block.append(f"   {details}")
 
     raw_url = f"https://www.discogs.com/release/{candidate['id']}"
-    discogs_url = f'\n  <a href="{html.escape(raw_url, quote=True)}">Link Discogs</a>'
+    link_line = f'   <a href="{html.escape(raw_url, quote=True)}">Link Discogs</a>'
 
     try:
         reference_prices = get_reference_prices(candidate["id"])
     except Exception as exc:
-        return f"{line} — prezzo non disponibile (errore Discogs: {exc}){discogs_url}", {}
+        block.append(f"   Prezzo non disponibile (errore Discogs: {exc})")
+        block.append(link_line)
+        return "\n".join(block), {}
 
     if reference_prices:
         price_line = " | ".join(f"{REFERENCE_LABELS[c]}: €{reference_prices[c]}" for c in REFERENCE_CONDITIONS if c in reference_prices)
-        line += f"\n  {price_line}"
+        block.append(f"   {price_line}")
     else:
-        line += " — nessun prezzo suggerito su Discogs"
-    return line + discogs_url, reference_prices
+        block.append("   Nessun prezzo suggerito su Discogs")
+    block.append(link_line)
+    return "\n".join(block), reference_prices
 
 
 def build_discount_line(listing_price, listing_currency: str | None, reference_prices: dict) -> str:
@@ -197,44 +202,48 @@ def build_discount_line(listing_price, listing_currency: str | None, reference_p
 
     discount_pct = round((good_price - listing_price) / good_price * 100)
     if discount_pct > 0:
-        return f"🔻 -{discount_pct}% rispetto a Discogs (Good)\n\n"
+        return f"🔻 -{discount_pct}% rispetto a Discogs (Good)"
     if discount_pct < 0:
-        return f"🔺 +{abs(discount_pct)}% rispetto a Discogs (Good)\n\n"
-    return "➖ Prezzo in linea con Discogs (Good)\n\n"
+        return f"🔺 +{abs(discount_pct)}% rispetto a Discogs (Good)"
+    return "➖ Prezzo in linea con Discogs (Good)"
 
 
 def build_summary_message(
     source: str, title: str, price, currency, url: str | None, merged: dict, candidates: list[dict]
 ) -> str:
-    candidate_lines = []
+    candidate_blocks = []
     best_reference_prices: dict = {}
-    for i, candidate in enumerate(candidates):
-        text, reference_prices = format_discogs_candidate(candidate)
-        candidate_lines.append(f"- {text}")
-        if i == 0:
+    for i, candidate in enumerate(candidates, start=1):
+        block, reference_prices = format_discogs_candidate(candidate, i)
+        candidate_blocks.append(block)
+        if i == 1:
             best_reference_prices = reference_prices
 
     discount_line = build_discount_line(price, currency, best_reference_prices)
 
-    lines = []
+    sections = []
+
     if discount_line:
-        lines.append(discount_line.rstrip())
-    lines.append(f"🎵 {html.escape(title or '')}")
-    lines.append(f"Prezzo annuncio: {price} {currency}")
+        sections.append(discount_line)
 
-    recognized = [f"{FIELD_LABELS[f]}: {html.escape(merged[f])}" for f in merged if merged.get(f)]
-    lines.append("Riconosciuto: " + (", ".join(recognized) if recognized else "nessun dato leggibile"))
+    sections.append(f"🎵 <b>{html.escape(title or '')}</b>\n💰 Prezzo annuncio: {price} {currency}")
 
-    if candidates:
-        lines.append("\nDiscogs:")
-        lines += candidate_lines
+    if merged and any(merged.values()):
+        recognized_lines = [f"{FIELD_LABELS[f]}: {html.escape(merged[f])}" for f in merged if merged.get(f)]
+        sections.append("📋 <b>Dati riconosciuti</b>\n" + "\n".join(recognized_lines))
     else:
-        lines.append("\nNessuna corrispondenza trovata su Discogs.")
+        sections.append("📋 Nessun dato riconosciuto")
+
+    if candidate_blocks:
+        sections.append("💿 <b>Discogs</b>\n" + "\n\n".join(candidate_blocks))
+    else:
+        sections.append("💿 Nessuna corrispondenza trovata su Discogs.")
 
     if url:
         escaped_url = html.escape(url, quote=True)
-        lines.append(f'\n<a href="{escaped_url}">Link {source.capitalize()}</a>')
-    return "\n".join(lines)
+        sections.append(f'🔗 <a href="{escaped_url}">Link {source.capitalize()}</a>')
+
+    return "\n\n".join(sections)
 
 
 def main() -> None:
