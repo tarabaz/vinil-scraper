@@ -8,10 +8,23 @@ import yaml
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config" / "categories"
 
 
-def load_rules(category: str) -> dict:
+def load_yaml_rules(category: str) -> dict:
+    """Regole statiche da file, così come scritte in config/categories/<categoria>.yaml."""
     path = CONFIG_DIR / f"{category}.yaml"
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def load_rules(category: str) -> dict:
+    """Regole per la categoria, con blacklist_keywords sovrascritta dalle
+    parole abilitate a runtime (es. dal menu Telegram) — lo YAML resta la
+    lista di default usata solo la prima volta."""
+    from core.keywords import enabled_keywords  # import locale: evita dipendenza circolare a livello di modulo
+
+    rules = load_yaml_rules(category)
+    default_blacklist = rules.get("blacklist_keywords", [])
+    rules["blacklist_keywords"] = enabled_keywords(f"filters.{category}.blacklist", default_blacklist)
+    return rules
 
 
 def _contains_keyword(text: str, keyword: str) -> bool:

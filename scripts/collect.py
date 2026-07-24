@@ -13,6 +13,8 @@ from core.collectors.ebay import find_category_id
 from core.collectors.registry import REGISTRY
 from core.db import RETENTION_HOURS, cleanup_old_listings, get_connection, insert_listing
 from core.filters import load_rules, passes_filters
+from core.keywords import enabled_keywords
+from core.query_defaults import DEFAULT_GENRE_QUERIES, DEFAULT_LOT_QUERIES
 from core.settings import get_setting
 
 SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti messaggi consecutivi
@@ -20,39 +22,6 @@ SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti mess
 DEFAULT_ENABLED_MARKETPLACES = ["ebay", "subito"]
 DEFAULT_SEARCH_MODES = ["lotti", "singoli"]
 DEFAULT_EBAY_CATEGORY = "Vinili"
-
-# Ricerche mirate: generi/artisti diretti (occasioni dove il titolo li nomina).
-# Attive solo se "singoli" è tra i tipi di ricerca abilitati.
-GENRE_QUERIES_BY_MARKETPLACE = {
-    "ebay": [
-        "AC/DC vinyl",
-        "Metallica vinyl",
-        "Nirvana vinyl",
-        "Led Zeppelin vinyl",
-        "Pink Floyd vinyl",
-        "rock vinyl record",
-        "metal vinyl record",
-        "vinile pop italiano",
-    ],
-    "subito": [
-        "AC/DC vinile",
-        "Metallica vinile",
-        "Nirvana vinile",
-        "Led Zeppelin vinile",
-        "Pink Floyd vinile",
-        "vinile rock",
-        "vinile metal",
-        "vinile pop italiano",
-    ],
-}
-
-# Ricerche su lotti "anonimi": qui possono nascondersi le occasioni migliori,
-# perché il venditore non sa cosa c'è dentro. Attive solo se "lotti" è tra i
-# tipi di ricerca abilitati.
-LOT_QUERIES_BY_MARKETPLACE = {
-    "ebay": ["vinyl record lot", "lotto vinili", "vinyl collection"],
-    "subito": ["lotto vinili", "lotto dischi vinile", "collezione vinili"],
-}
 
 
 def format_listed_at(listed_at: str | None) -> str:
@@ -146,9 +115,13 @@ if __name__ == "__main__":
         collector = REGISTRY[marketplace]()
         queries = []
         if "singoli" in search_modes:
-            queries += GENRE_QUERIES_BY_MARKETPLACE.get(marketplace, [])
+            queries += enabled_keywords(
+                f"search.queries.{marketplace}.genre", DEFAULT_GENRE_QUERIES.get(marketplace, [])
+            )
         if "lotti" in search_modes:
-            queries += LOT_QUERIES_BY_MARKETPLACE.get(marketplace, [])
+            queries += enabled_keywords(
+                f"search.queries.{marketplace}.lot", DEFAULT_LOT_QUERIES.get(marketplace, [])
+            )
 
         for query in queries:
             print(f"\n=== [{marketplace}] Ricerca: {query} ===")
