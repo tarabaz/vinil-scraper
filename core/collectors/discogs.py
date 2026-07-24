@@ -52,17 +52,25 @@ def search_release(artist: str, title: str) -> dict | None:
     return results[0] if results else None
 
 
-def search_by_catalog_number(catno: str) -> list[dict]:
+def search_by_catalog_number(
+    catno: str, country: str | None = None, year: str | None = None
+) -> list[dict]:
     """Cerca release per codice catalogo. Ritorna tutti i candidati trovati (paese/anno/etichetta
-    possono differire per lo stesso codice: non è garantito un solo risultato univoco)."""
+    possono differire per lo stesso codice: non è garantito un solo risultato univoco).
+
+    Se si conosce con certezza il paese e/o l'anno (es. letto dalla copertina in foto),
+    passarli per restringere i candidati invece di indovinare o fare medie tra prezzi
+    di edizioni diverse."""
+    params = {"catno": catno, "type": "release", "format": "Vinyl"}
+    if country:
+        params["country"] = country
+    if year:
+        params["year"] = year
+
     response = requests.get(
         f"{BASE_URL}/database/search",
         headers=_headers(),
-        params={
-            "catno": catno,
-            "type": "release",
-            "format": "Vinyl",
-        },
+        params=params,
         timeout=10,
     )
     response.raise_for_status()
