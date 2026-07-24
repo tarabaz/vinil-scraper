@@ -209,3 +209,27 @@ python -m bot.settings_menu
 Da lì, direttamente dal bot: abilita/disabilita marketplace, tipo di ricerca
 (lotti/singoli), categoria eBay, e gestisci le parole chiave di ricerca ed
 esclusione (sospendi/riattiva con un tocco, aggiungi scrivendo un messaggio).
+
+## Changelog
+
+Ogni riga indica quando è stata fatta la modifica (data del commit).
+
+- **2026-07-23** — Struttura iniziale del progetto, bot Telegram di test
+- **2026-07-23** — Storage SQLite con dedup per annuncio
+- **2026-07-23** — Collector eBay Browse API
+- **2026-07-23** — Collegamento eBay → DB con dedup
+- **2026-07-23** — Filtri a regole YAML per la categoria vinili
+- **2026-07-23** — Primo ciclo end-to-end: notifica Telegram sui nuovi annunci
+- **2026-07-23** — Notifiche individuali con data di pubblicazione dell'annuncio
+- **2026-07-23** — Filtri vinili allineati alla strategia reale (caccia a lotti sottoprezzati, nessuna whitelist per genere)
+- **2026-07-23** — Corretti falsi positivi nel filtro blacklist (confronto a parola intera)
+- **2026-07-24** — Messaggio Telegram riformattato: link cliccabile, campo prezzo realistico
+- **2026-07-24** — Client Discogs: prezzi per condizione
+- **2026-07-24** — Client Discogs: ricerca per codice catalogo
+- **2026-07-24** — Ricerca per codice catalogo restringibile per paese/anno
+- **2026-07-24** — Ricerca eBay ristretta alla categoria ufficiale vinili (Taxonomy API)
+- **2026-07-24** — Fusione multi-foto e sistema di confidenza per i dischi rilevati (`core/vision/matching.py`)
+- **2026-07-24** — Retention configurabile con pulizia automatica del DB (`RETENTION_HOURS`)
+- **2026-07-24** — Architettura multi-marketplace: tipo `Listing` unificato, collector Subito
+- **2026-07-24** — Menu impostazioni Telegram (marketplace, tipo ricerca, categoria eBay)
+- **2026-07-24** — Gestione parole chiave (ricerca ed esclusione) dal menu Telegram
