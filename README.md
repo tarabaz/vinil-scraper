@@ -264,9 +264,13 @@ esclusione (sospendi/riattiva con un tocco, aggiungi scrivendo un messaggio).
 
 **Avviare la ricerca da Telegram** (senza terminale): comando `/cerca` o
 bottone "🔍 Cerca ora" nel menu (solo amministratore) — esegue lo stesso
-ciclo di `python -m scripts.collect` e alla fine manda un riepilogo in chat.
-Richiede comunque che `python -m bot.settings_menu` sia in esecuzione da
-qualche parte (PC acceso), esattamente come per il resto del bot.
+ciclo di `python -m scripts.collect`. L'amministratore riceve sempre un
+report della scansione (anche con zero risultati): un messaggio iniziale
+che si aggiorna mentre procede (progresso), poi un riepilogo finale
+(annunci nuovi, controllati, con corrispondenza Discogs, notificati, quanti
+sotto il 50% del valore Discogs). Richiede comunque che
+`python -m bot.settings_menu` sia in esecuzione da qualche parte (PC
+acceso), esattamente come per il resto del bot.
 
 **Multi-utente**: la prima volta che il chat id in `TELEGRAM_CHAT_ID` scrive
 `/start` diventa automaticamente amministratore. Chiunque altro scriva al
@@ -275,8 +279,11 @@ notifica con bottoni ✅ Approva / ❌ Rifiuta. Una volta approvato, l'utente
 vede solo "🔍 I miei filtri": può abilitare parole chiave personali (es.
 "883") per ricevere solo gli annunci che le contengono, oppure lasciare
 tutto disabilitato per ricevere tutti i risultati della ricerca globale.
-L'amministratore gestisce approvazioni/rimozioni anche in seguito da "👥
-Gestisci utenti" nel menu principale.
+Cambiare i filtri è un'azione silenziosa (salva e basta, non parte nessuna
+ricerca): il controllo — sia sui nuovi annunci sia su quelli già in DB non
+ancora notificati con i filtri attuali — parte solo quando si lancia
+`/cerca`. L'amministratore gestisce approvazioni/rimozioni anche in seguito
+da "👥 Gestisci utenti" nel menu principale.
 
 ## Changelog
 
@@ -407,5 +414,22 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   limitata ai primi `MAX_ENRICHED_LISTINGS_PER_RUN` (10) annunci "validi"
   (con almeno una corrispondenza Discogs trovata) per esecuzione; gli
   annunci senza corrispondenza non vengono notificati né contano nel
-  limite. `notify_backlog_for_user` (filtri personali) usa ancora il
-  messaggio semplice, non ancora aggiornato all'arricchimento.
+  limite.
+- **2026-07-24** — Rimosso il controllo automatico sul backlog quando si
+  aggiunge/attiva un filtro personale (era fastidioso: partiva subito senza
+  chiederlo). Spostato dentro la scansione stessa (`/cerca`): ogni volta che
+  si lancia una ricerca, oltre ai nuovi annunci controlla anche quelli GIÀ
+  in DB che ora corrispondono al filtro personale di qualcuno e non sono
+  ancora stati notificati — un'unica azione deliberata invece di scattare
+  ad ogni cambio di filtro. `notify_backlog_for_user` (messaggio semplice,
+  non arricchito) è stato rimosso, sostituito da `get_backlog_candidates`
+  che confluisce nello stesso ciclo di arricchimento dei nuovi annunci.
+- **2026-07-24** — Report sempre inviato all'amministratore a fine
+  scansione, anche con zero risultati: un messaggio iniziale (quanti nuovi
+  + quanti dal backlog) che si aggiorna in corso d'opera (ogni 5 annunci
+  controllati) e poi un riepilogo finale (controllati, con corrispondenza
+  Discogs, notificati, quanti sotto il 50% del valore Discogs "Good") — per
+  capire cosa ha fatto la scansione senza dover guardare il terminale.
+  `bot/notifier.send_message` ora ritorna il `message_id` e nuova
+  `edit_message()` per aggiornare un messaggio già inviato invece di
+  mandarne uno nuovo ogni volta.

@@ -51,7 +51,7 @@ from core.users import (
     reject_user,
     request_access,
 )
-from scripts.collect import notify_backlog_for_user, run_collection
+from scripts.collect import run_collection
 
 load_dotenv()
 
@@ -276,44 +276,27 @@ async def _request_access(update: Update, context: ContextTypes.DEFAULT_TYPE, ch
     )
 
 
-async def _check_backlog_and_report(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
-    """Dopo aver aggiunto/attivato un filtro personale, controlla anche gli
-    annunci GIÀ presenti nel DB (trovati da scansioni precedenti), non solo
-    quelli delle prossime ricerche — gira in un thread separato perché invia
-    messaggi (rete)."""
-    sent = await asyncio.to_thread(notify_backlog_for_user, chat_id)
-    if sent:
-        text = f"🔎 Trovati e inviati {sent} annunci già in archivio che corrispondono al filtro."
-    else:
-        text = (
-            "🔎 Nessun annuncio già in archivio corrisponde a questo filtro per ora "
-            "(verrà controllato automaticamente anche nelle prossime ricerche)."
-        )
-    await context.bot.send_message(chat_id=chat_id, text=text)
-
-
 async def _run_search_now(update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
-    """Esegue run_collection() (ricerca + filtri + notifica) su richiesta,
-    invece di dover lanciare scripts.collect da terminale. Gira in un thread
-    a parte (asyncio.to_thread): run_collection fa chiamate di rete
-    bloccanti, farla girare direttamente nell'handler bloccherebbe l'intero
-    bot finché non finisce."""
+    """Esegue run_collection() (ricerca + filtri + arricchimento + notifica)
+    su richiesta, invece di dover lanciare scripts.collect da terminale.
+    Gira in un thread a parte (asyncio.to_thread): run_collection fa
+    chiamate di rete bloccanti, farla girare direttamente nell'handler
+    bloccherebbe l'intero bot finché non finisce.
+
+    Il progresso e il riepilogo finale li manda già run_collection stesso
+    all'amministratore (core.users.ADMIN_CHAT_ID) via notify_new_listings —
+    qui serve solo l'ack immediato e la segnalazione di un crash vero e
+    proprio (non gli errori di singola ricerca, quelli sono già nel
+    riepilogo)."""
     if not is_admin(chat_id):
         await context.bot.send_message(chat_id=chat_id, text="Solo l'amministratore può avviare la ricerca manualmente.")
         return
 
     await context.bot.send_message(chat_id=chat_id, text="🔍 Ricerca avviata, può richiedere qualche minuto...")
     try:
-        summary = await asyncio.to_thread(run_collection)
+        await asyncio.to_thread(run_collection)
     except Exception as exc:
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Ricerca fallita: {exc}")
-        return
-
-    lines = [f"✅ Ricerca completata: {summary['new_listings']} annunci nuovi trovati."]
-    if summary["errors"]:
-        lines.append("\n⚠️ Errori:")
-        lines += [f"- {e}" for e in summary["errors"]]
-    await context.bot.send_message(chat_id=chat_id, text="\n".join(lines))
 
 
 async def cerca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -375,14 +358,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data.startswith("myftoggle:"):
         index = int(data.split(":", 1)[1])
         sorted_keys = sorted(get_user_keywords(chat_id).keys())
-        newly_enabled = False
         if 0 <= index < len(sorted_keys):
-            keyword = sorted_keys[index]
-            updated = toggle_user_keyword(chat_id, keyword)
-            newly_enabled = updated.get(keyword, False)
+            toggle_user_keyword(chat_id, sorted_keys[index])
         await query.edit_message_text(MY_FILTERS_TEXT, reply_markup=build_my_filters_markup(chat_id))
-        if newly_enabled:
-            await _check_backlog_and_report(update, context, chat_id)
         return
 
     if data == "myfadd":
@@ -462,7 +440,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             f'Aggiunta ai tuoi filtri personali: "{new_keyword}"',
             reply_markup=build_my_filters_markup(chat_id),
         )
-        await _check_backlog_and_report(update, context, chat_id)
         return
 
     if not is_admin(chat_id):

@@ -40,9 +40,12 @@ def main() -> None:
         print(f"Riconosciuto: {enrichment['merged']}")
         print(f"Candidati Discogs: {len(enrichment['candidates'])}")
 
-        message = build_enrichment_message(source, title, price, currency, url, enrichment["merged"], enrichment["candidates"])
+        message, discount_pct = build_enrichment_message(
+            source, title, price, currency, url, enrichment["merged"], enrichment["candidates"]
+        )
 
         print("\n--- Messaggio ---")
+        print(f"(% sconto: {discount_pct})")
         print(message)
 
         try:

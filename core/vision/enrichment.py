@@ -205,14 +205,20 @@ def format_discogs_candidate(candidate: dict, index: int) -> tuple[str, dict]:
     return "\n".join(block), reference_prices
 
 
-def build_discount_line(listing_price, listing_currency: str | None, reference_prices: dict) -> str:
-    """% rispetto al prezzo Discogs in condizione Good, calcolata solo se il
-    prezzo dell'annuncio e quello Discogs sono nella stessa valuta (EUR)."""
+def compute_discount_pct(listing_price, listing_currency: str | None, reference_prices: dict) -> int | None:
+    """% rispetto al prezzo Discogs in condizione Good (positiva = annuncio
+    più economico, un affare). None se non calcolabile (manca il prezzo
+    Good, manca il prezzo annuncio, o valute diverse — calcola solo se
+    entrambi in EUR)."""
     good_price = reference_prices.get(DEAL_CONDITION)
     if not good_price or listing_price is None or (listing_currency or "").upper() != "EUR":
-        return ""
+        return None
+    return round((good_price - listing_price) / good_price * 100)
 
-    discount_pct = round((good_price - listing_price) / good_price * 100)
+
+def build_discount_line(discount_pct: int | None) -> str:
+    if discount_pct is None:
+        return ""
     if discount_pct > 0:
         return f"🔻 -{discount_pct}% rispetto a Discogs (Good)"
     if discount_pct < 0:
@@ -267,9 +273,13 @@ def enrich_listing(conn, source: str, external_id: str, title: str, image_url: s
     return {"merged": merged, "candidates": find_discogs_candidates(merged), "source_of_data": "vision"}
 
 
-def build_enrichment_message(source: str, title: str, price, currency, url: str | None, merged: dict, candidates: list[dict]) -> str:
+def build_enrichment_message(
+    source: str, title: str, price, currency, url: str | None, merged: dict, candidates: list[dict]
+) -> tuple[str, int | None]:
     """Messaggio Telegram a sezioni (titolo, dati riconosciuti, Discogs,
-    link), ognuna separata da una riga vuota."""
+    link), ognuna separata da una riga vuota. Ritorna anche (oltre al testo)
+    la % di sconto vs Discogs Good come numero, per poterla usare altrove
+    (es. contarla in un report) senza doverla riparsare dal testo."""
     candidate_blocks = []
     best_reference_prices: dict = {}
     for i, candidate in enumerate(candidates, start=1):
@@ -278,7 +288,8 @@ def build_enrichment_message(source: str, title: str, price, currency, url: str 
         if i == 1:
             best_reference_prices = reference_prices
 
-    discount_line = build_discount_line(price, currency, best_reference_prices)
+    discount_pct = compute_discount_pct(price, currency, best_reference_prices)
+    discount_line = build_discount_line(discount_pct)
 
     sections = []
 
@@ -302,4 +313,4 @@ def build_enrichment_message(source: str, title: str, price, currency, url: str 
         escaped_url = html.escape(url, quote=True)
         sections.append(f'🔗 <a href="{escaped_url}">Link {source.capitalize()}</a>')
 
-    return "\n\n".join(sections)
+    return "\n\n".join(sections), discount_pct

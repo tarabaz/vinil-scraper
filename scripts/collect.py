@@ -3,11 +3,9 @@ i nuovi e notifica su Telegram. Marketplace-agnostico: usa il registro dei
 collector e l'impostazione marketplaces.enabled, non ha logica specifica di
 nessuna fonte (quella vive nei singoli collector)."""
 
-import html
 import time
-from datetime import datetime
 
-from bot.notifier import send_message
+from bot.notifier import edit_message, send_message
 from core.collectors.base import listing_to_dict
 from core.collectors.ebay import find_category_id
 from core.collectors.registry import REGISTRY
@@ -18,147 +16,175 @@ from core.notifications import has_been_notified, mark_notified
 from core.query_defaults import DEFAULT_GENRE_QUERIES, DEFAULT_LOT_QUERIES
 from core.settings import get_setting
 from core.user_filters import matches_user_filter
-from core.users import ensure_admin_registered, list_approved
+from core.users import ADMIN_CHAT_ID, ensure_admin_registered, list_approved
 from core.vision.enrichment import build_enrichment_message, enrich_listing
 
 SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti messaggi consecutivi
 
-# LIMITE TEMPORANEO per le prove: la ricerca reale può trovare centinaia di
-# annunci nuovi al primo giro (il DB parte vuoto). Ogni annuncio arricchito
-# richiede ricerca Discogs (e a volte vision su più foto), quindi va tenuto
-# basso finché si sta testando. Conta solo gli annunci "validi" (con almeno
-# una corrispondenza Discogs trovata) — gli altri non vengono nemmeno
-# arricchiti oltre il tentativo. Da alzare/rimuovere quando si passa
-# all'uso reale.
+# LIMITI TEMPORANEI per le prove: ogni annuncio arricchito richiede ricerca
+# Discogs (e a volte vision su più foto), quindi vanno tenuti bassi finché
+# si sta testando. MAX_ENRICHED_LISTINGS_PER_RUN conta solo gli annunci
+# "validi" (con almeno una corrispondenza Discogs); MAX_LISTINGS_CHECKED_PER_RUN
+# è un tetto separato sul totale controllato, per non finire a processare
+# centinaia di annunci solo perché pochi hanno una corrispondenza. Da
+# alzare/rimuovere quando si passa all'uso reale.
 MAX_ENRICHED_LISTINGS_PER_RUN = 10
+MAX_LISTINGS_CHECKED_PER_RUN = 30
 MAX_IMAGES_PER_LISTING = 5  # un lotto può avere decine di foto, non le processiamo tutte
 
-# Quando un utente aggiunge/attiva una parola nei propri filtri personali,
-# notify_backlog_for_user() controlla anche gli annunci già nel DB (non solo
-# le prossime scansioni). Limite separato per non ritrovarsi con un'unica
-# attivazione che manda decine di messaggi in un colpo.
-MAX_BACKLOG_NOTIFICATIONS = 20
+PROGRESS_EDIT_EVERY = 5  # ogni quanti annunci controllati aggiornare il messaggio di avanzamento
+UNDER_VALUE_THRESHOLD_PCT = 50  # soglia (%) per il conteggio "sotto il valore Discogs" nel report finale
 
 DEFAULT_ENABLED_MARKETPLACES = ["ebay", "subito"]
 DEFAULT_SEARCH_MODES = ["lotti", "singoli"]
 DEFAULT_EBAY_CATEGORY = "Vinili"
 
 
-def format_listed_at(listed_at: str | None) -> str:
-    if not listed_at:
-        return "data non disponibile"
-    try:
-        return datetime.fromisoformat(listed_at.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
-    except ValueError:
-        return listed_at
+def get_backlog_candidates(conn, users: list[dict], exclude_keys: set[tuple[str, str]]) -> list[dict]:
+    """Annunci GIÀ nel DB (non necessariamente nuovi in questo giro) che
+    potrebbero interessare a qualche utente approvato in base al filtro
+    personale ATTUALE, e che non gli sono ancora stati notificati — recupera
+    corrispondenze con filtri aggiunti dopo che l'annuncio era già stato
+    trovato. Controllato solo quando si lancia una scansione (/cerca), non
+    ad ogni cambio di filtro."""
+    if not users:
+        return []
+    rows = conn.execute("SELECT source, external_id, title, price, currency, url, image_url FROM listings").fetchall()
+    candidates = []
+    for source, external_id, title, price, currency, url, image_url in rows:
+        if (source, external_id) in exclude_keys:
+            continue
+        relevant = any(
+            matches_user_filter(user["chat_id"], title) and not has_been_notified(conn, user["chat_id"], source, external_id)
+            for user in users
+        )
+        if relevant:
+            candidates.append(
+                {"source": source, "external_id": external_id, "title": title, "price": price, "currency": currency, "url": url, "image_url": image_url}
+            )
+    return candidates
 
 
-def build_message(item: dict) -> str:
-    title = html.escape(item["title"] or "")
-    url = html.escape(item["url"] or "", quote=True)
-    # TODO: quando avremo l'arricchimento Discogs, calcolare qui il prezzo
-    # realistico del disco (e più avanti la differenza/margine).
-    return (
-        f"🎵 {title}\n"
-        f"Prezzo annuncio: {item['price']} {item['currency']}\n"
-        f"Prezzo realistico: non disponibile\n"
-        f"Pubblicato: {format_listed_at(item.get('listed_at'))}\n"
-        f'<a href="{url}">Link {item["source"].capitalize()}</a>'
-    )
-
-
-def notify_new_listings(new_listings: list[dict]) -> None:
+def notify_new_listings(new_listings: list[dict], errors: list[str] | None = None) -> dict:
     """Va chiamata UNA SOLA VOLTA, con i nuovi annunci già aggregati da tutte
-    le query di ricerca. Per ognuno: arricchisce con dati riconosciuti
-    (titolo -> cache -> vision, il meno costoso che basta) e cerca su
-    Discogs, poi notifica solo i primi MAX_ENRICHED_LISTINGS_PER_RUN annunci
-    "validi" (con almeno una corrispondenza Discogs) — gli annunci senza
-    corrispondenza non contano nel limite né vengono notificati, restano
-    comunque salvati nel DB. Ricerca unica e globale: ogni utente approvato
-    riceve solo gli annunci che passano anche il proprio filtro personale.
-    Ogni invio viene registrato (core.notifications) per non rimandare mai
-    due volte lo stesso annuncio allo stesso utente."""
+    le query di ricerca. Oltre ai nuovi, controlla anche il backlog (annunci
+    già in DB che ora corrispondono al filtro personale di qualcuno, non
+    ancora notificati — es. filtro aggiunto dopo che l'annuncio era già
+    stato trovato). Per ognuno (fino ai limiti sopra, condivisi tra nuovi e
+    backlog): arricchisce con dati riconosciuti (titolo -> cache -> vision,
+    il meno costoso che basta) e cerca su Discogs, poi notifica i "validi"
+    (con corrispondenza Discogs) a ogni utente approvato la cui filtro
+    personale corrisponde.
+
+    Manda sempre un report all'amministratore (anche con 0 risultati): un
+    messaggio all'avvio che si aggiorna mentre la scansione procede
+    (progresso), poi un riepilogo finale — così si può seguire cosa sta
+    facendo anche da lontano, senza aprire il terminale."""
+    errors = errors or []
     users = list_approved()
-    if not users or not new_listings:
-        return
 
     conn = get_connection()
-    valid_count = 0
-    for item in new_listings:
-        if valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN:
-            break
+    backlog_candidates = get_backlog_candidates(conn, users, {(item["source"], item["external_id"]) for item in new_listings})
+    items_to_process = new_listings + backlog_candidates
 
-        enrichment = enrich_listing(
-            conn, item["source"], item["external_id"], item["title"], item.get("image_url"), max_images=MAX_IMAGES_PER_LISTING
-        )
-        if not enrichment["candidates"]:
-            continue  # nessuna corrispondenza Discogs: non "valido", non conta nel limite
-
-        valid_count += 1
-        message = build_enrichment_message(
-            item["source"], item["title"], item["price"], item["currency"], item["url"], enrichment["merged"], enrichment["candidates"]
-        )
-
-        for user in users:
-            if has_been_notified(conn, user["chat_id"], item["source"], item["external_id"]):
-                continue
-            if not matches_user_filter(user["chat_id"], item["title"]):
-                continue
-            try:
-                send_message(message, parse_mode="HTML", chat_id=user["chat_id"])
-                mark_notified(conn, user["chat_id"], item["source"], item["external_id"])
-            except Exception as exc:
-                print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
-            time.sleep(SECONDS_BETWEEN_MESSAGES)
-    conn.close()
-
-    if valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN:
-        print(
-            f"\n⚠️  Limite di {MAX_ENRICHED_LISTINGS_PER_RUN} annunci validi raggiunto: "
-            "il resto dei nuovi annunci non è stato processato in questo giro "
-            "(restano comunque salvati nel DB)."
-        )
-
-
-def notify_backlog_for_user(chat_id: int, limit: int = MAX_BACKLOG_NOTIFICATIONS) -> int:
-    """Quando un utente aggiunge/attiva una parola nei propri filtri
-    personali, controlla anche gli annunci GIÀ presenti nel DB (trovati da
-    scansioni precedenti, non solo dalle prossime) e notifica quelli che
-    corrispondono al nuovo filtro e non gli sono già stati mandati. Ritorna
-    quanti ne ha inviati."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT source, external_id, title, price, currency, url, listed_at FROM listings"
-    ).fetchall()
-
-    sent = 0
-    for source, external_id, title, price, currency, url, listed_at in rows:
-        if sent >= limit:
-            break
-        if has_been_notified(conn, chat_id, source, external_id):
-            continue
-        if not matches_user_filter(chat_id, title):
-            continue
-
-        item = {
-            "source": source,
-            "title": title,
-            "price": price,
-            "currency": currency,
-            "url": url,
-            "listed_at": listed_at,
-        }
+    progress_message_id = None
+    if ADMIN_CHAT_ID:
         try:
-            send_message(build_message(item), parse_mode="HTML", chat_id=chat_id)
-            mark_notified(conn, chat_id, source, external_id)
+            if items_to_process:
+                start_text = (
+                    f"🔍 Scansione: {len(new_listings)} annunci nuovi trovati "
+                    f"({len(backlog_candidates)} anche dal backlog per i filtri personali). Arricchimento in corso..."
+                )
+            else:
+                start_text = "🔍 Scansione completata: nessun annuncio nuovo o da ricontrollare."
+            progress_message_id = send_message(start_text, chat_id=ADMIN_CHAT_ID)
         except Exception as exc:
-            print(f"[ERRORE] invio backlog a {chat_id} fallito: {exc}")
-            continue
-        sent += 1
-        time.sleep(SECONDS_BETWEEN_MESSAGES)
+            print(f"[ERRORE] invio messaggio di avvio fallito: {exc}")
 
+    checked_count = 0
+    valid_count = 0
+    notified_count = 0
+    under_threshold_count = 0
+
+    if items_to_process and users:
+        for item in items_to_process:
+            if valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN or checked_count >= MAX_LISTINGS_CHECKED_PER_RUN:
+                break
+            checked_count += 1
+
+            enrichment = enrich_listing(
+                conn, item["source"], item["external_id"], item["title"], item.get("image_url"), max_images=MAX_IMAGES_PER_LISTING
+            )
+
+            if enrichment["candidates"]:
+                valid_count += 1
+                message, discount_pct = build_enrichment_message(
+                    item["source"],
+                    item["title"],
+                    item["price"],
+                    item["currency"],
+                    item["url"],
+                    enrichment["merged"],
+                    enrichment["candidates"],
+                )
+                if discount_pct is not None and discount_pct >= UNDER_VALUE_THRESHOLD_PCT:
+                    under_threshold_count += 1
+
+                sent_to_anyone = False
+                for user in users:
+                    if has_been_notified(conn, user["chat_id"], item["source"], item["external_id"]):
+                        continue
+                    if not matches_user_filter(user["chat_id"], item["title"]):
+                        continue
+                    try:
+                        send_message(message, parse_mode="HTML", chat_id=user["chat_id"])
+                        mark_notified(conn, user["chat_id"], item["source"], item["external_id"])
+                        sent_to_anyone = True
+                    except Exception as exc:
+                        print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
+                    time.sleep(SECONDS_BETWEEN_MESSAGES)
+                if sent_to_anyone:
+                    notified_count += 1
+
+            if ADMIN_CHAT_ID and progress_message_id and checked_count % PROGRESS_EDIT_EVERY == 0:
+                try:
+                    edit_message(
+                        ADMIN_CHAT_ID,
+                        progress_message_id,
+                        f"⏳ Scansione in corso: {checked_count}/{len(items_to_process)} annunci controllati, "
+                        f"{valid_count} validi trovati finora...",
+                    )
+                except Exception as exc:
+                    print(f"[ERRORE] aggiornamento messaggio di progresso fallito: {exc}")
     conn.close()
-    return sent
+
+    summary_lines = [
+        f"✅ Scansione completata: {len(new_listings)} annunci nuovi trovati, "
+        f"{len(backlog_candidates)} dal backlog per i filtri personali."
+    ]
+    if items_to_process:
+        summary_lines.append(f"{checked_count} controllati, {valid_count} con corrispondenza Discogs, {notified_count} notificati.")
+        summary_lines.append(f"{under_threshold_count} sotto il {UNDER_VALUE_THRESHOLD_PCT}% del valore Discogs (Good).")
+        if valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN:
+            summary_lines.append(f"⚠️ Limite di {MAX_ENRICHED_LISTINGS_PER_RUN} annunci validi raggiunto in questo giro.")
+        elif checked_count >= MAX_LISTINGS_CHECKED_PER_RUN:
+            summary_lines.append(f"⚠️ Limite di {MAX_LISTINGS_CHECKED_PER_RUN} annunci controllati raggiunto in questo giro.")
+    if errors:
+        summary_lines.append(f"⚠️ {len(errors)} ricerche fallite: " + "; ".join(errors))
+    summary = "\n".join(summary_lines)
+
+    if ADMIN_CHAT_ID:
+        try:
+            if progress_message_id:
+                edit_message(ADMIN_CHAT_ID, progress_message_id, summary)
+            else:
+                send_message(summary, chat_id=ADMIN_CHAT_ID)
+        except Exception as exc:
+            print(f"[ERRORE] invio riepilogo fallito: {exc}")
+
+    print(f"\n{summary}")
+
+    return {"checked": checked_count, "valid": valid_count, "notified": notified_count, "under_threshold": under_threshold_count}
 
 
 def collect(collector, query: str, category: str = "vinyl", **search_settings) -> list[dict]:
@@ -201,9 +227,10 @@ def collect(collector, query: str, category: str = "vinyl", **search_settings) -
 
 def run_collection() -> dict:
     """Ciclo completo: pulizia DB, ricerca su tutti i marketplace abilitati
-    (tutte le query aggregate), filtri, dedup, notifica. Ritorna un
-    riepilogo — usata sia dall'esecuzione da terminale (__main__) sia dal
-    comando /cerca del bot Telegram, così la logica vive in un posto solo."""
+    (tutte le query aggregate), filtri, dedup, arricchimento (vision +
+    Discogs), notifica. Ritorna un riepilogo — usata sia dall'esecuzione da
+    terminale (__main__) sia dal comando /cerca del bot Telegram, così la
+    logica vive in un posto solo."""
     ensure_admin_registered()
 
     cleanup_conn = get_connection()
@@ -256,9 +283,9 @@ def run_collection() -> dict:
                 errors.append(error_message)
 
     print(f"\n=== Ricerche completate: {len(all_new_listings)} annunci nuovi in totale, notifica in corso ===")
-    notify_new_listings(all_new_listings)
+    notify_summary = notify_new_listings(all_new_listings, errors=errors)
 
-    return {"removed": removed, "new_listings": len(all_new_listings), "errors": errors}
+    return {"removed": removed, "new_listings": len(all_new_listings), "errors": errors, **notify_summary}
 
 
 if __name__ == "__main__":
