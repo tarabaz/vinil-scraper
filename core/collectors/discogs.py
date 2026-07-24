@@ -52,6 +52,35 @@ def search_release(artist: str, title: str) -> dict | None:
     return results[0] if results else None
 
 
+def search_by_catalog_number(catno: str) -> list[dict]:
+    """Cerca release per codice catalogo. Ritorna tutti i candidati trovati (paese/anno/etichetta
+    possono differire per lo stesso codice: non è garantito un solo risultato univoco)."""
+    response = requests.get(
+        f"{BASE_URL}/database/search",
+        headers=_headers(),
+        params={
+            "catno": catno,
+            "type": "release",
+            "format": "Vinyl",
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    results = response.json().get("results", [])
+    return [
+        {
+            "id": r["id"],
+            "title": r.get("title"),
+            "country": r.get("country"),
+            "year": r.get("year"),
+            "label": r.get("label"),
+            "catno": r.get("catno"),
+            "format": r.get("format"),
+        }
+        for r in results
+    ]
+
+
 def get_price_suggestions(release_id: int) -> dict:
     """Ritorna il dizionario condizione -> {currency, value} per una release."""
     response = requests.get(
@@ -71,18 +100,32 @@ def price_range(price_suggestions: dict) -> tuple[dict | None, dict | None]:
     return price_suggestions[available[0]], price_suggestions[available[-1]]
 
 
+def _print_prices(release_id: int) -> None:
+    prices = get_price_suggestions(release_id)
+    low, high = price_range(prices)
+    if low and high:
+        print(
+            f"  Prezzo Discogs: {low['value']} {low['currency']} (peggiore) "
+            f"– {high['value']} {high['currency']} (migliore)"
+        )
+    else:
+        print("  Nessun prezzo suggerito disponibile per questa release.")
+
+
 if __name__ == "__main__":
+    print("--- Ricerca per artista + titolo ---")
     release = search_release("Pink Floyd", "The Wall")
     if not release:
         print("Nessuna release trovata.")
     else:
         print(f"Trovata: {release['title']} (id {release['id']})")
-        prices = get_price_suggestions(release["id"])
-        low, high = price_range(prices)
-        if low and high:
-            print(
-                f"Prezzo Discogs: {low['value']} {low['currency']} (peggiore) "
-                f"– {high['value']} {high['currency']} (migliore)"
-            )
-        else:
-            print("Nessun prezzo suggerito disponibile per questa release.")
+        _print_prices(release["id"])
+
+    print("\n--- Ricerca per codice catalogo (può dare più candidati) ---")
+    candidates = search_by_catalog_number("510 022-1")
+    if not candidates:
+        print("Nessuna release trovata per questo codice.")
+    else:
+        print(f"{len(candidates)} candidati trovati per questo codice:")
+        for c in candidates:
+            print(f"  - {c['title']} | {c['country']} {c['year']} | {c['label']} | {c['catno']} | id {c['id']}")
