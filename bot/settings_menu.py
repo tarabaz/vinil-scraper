@@ -85,7 +85,7 @@ BOT_COMMANDS = [
     BotCommand("start", "Apri il menu impostazioni"),
     BotCommand("impostazioni", "Apri il menu impostazioni (uguale a /start)"),
     BotCommand("cerca", "Avvia subito una ricerca (solo amministratore)"),
-    BotCommand("report", "Report di tutti gli annunci con dati riconosciuti (solo amministratore)"),
+    BotCommand("report", "Report degli annunci già sotto il prezzo Discogs (solo amministratore)"),
     BotCommand("report_miei", "Report degli annunci che corrispondono ai tuoi filtri personali"),
 ]
 KEYWORD_CATEGORIES_TEXT = (
@@ -310,25 +310,26 @@ async def cerca_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await _run_search_now(update, context, update.effective_chat.id)
 
 
-def _digest_lines(chat_id: int | None) -> list[str]:
+def _digest_lines(chat_id: int | None, require_discount: bool) -> list[str]:
     """Apre la propria connessione DB — va chiamata via asyncio.to_thread,
     non si può riusare una connessione sqlite aperta in un altro thread."""
     conn = get_connection()
     try:
-        return generate_digest(conn, DIGEST_LIMIT, chat_id)
+        return generate_digest(conn, DIGEST_LIMIT, chat_id, require_discount)
     finally:
         conn.close()
 
 
-async def _send_digest_report(context: ContextTypes.DEFAULT_TYPE, chat_id: int, personal: bool) -> None:
+async def _send_digest_report(context: ContextTypes.DEFAULT_TYPE, chat_id: int, personal: bool, require_discount: bool) -> None:
     """Report SOLO sul DB già filtrato: nessuna ricerca nuova sui
     marketplace, nessuna vision fresca — solo dati già noti (titolo o
-    cache). personal=True applica il filtro personale del chiamante,
-    personal=False mostra tutto."""
-    label = "i tuoi filtri personali" if personal else "tutti gli annunci"
+    cache). personal=True applica il filtro personale del chiamante (non
+    guarda il prezzo); require_discount=True mostra solo chi è già sotto il
+    prezzo Discogs "Good" (qualunque sconto, non serve arrivare al 50%)."""
+    label = "i tuoi filtri personali" if personal else "già sotto il prezzo Discogs"
     await context.bot.send_message(chat_id=chat_id, text=f"📊 Preparazione report ({label})...")
 
-    lines = await asyncio.to_thread(_digest_lines, chat_id if personal else None)
+    lines = await asyncio.to_thread(_digest_lines, chat_id if personal else None, require_discount)
 
     if not lines:
         await context.bot.send_message(chat_id=chat_id, text="Nessun annuncio con dati riconosciuti trovato al momento.")
@@ -349,14 +350,14 @@ async def report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not is_admin(chat_id):
         await context.bot.send_message(chat_id=chat_id, text="Solo l'amministratore può usare questo comando.")
         return
-    await _send_digest_report(context, chat_id, personal=False)
+    await _send_digest_report(context, chat_id, personal=False, require_discount=True)
 
 
 async def report_miei_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     if not is_approved(chat_id):
         return
-    await _send_digest_report(context, chat_id, personal=True)
+    await _send_digest_report(context, chat_id, personal=True, require_discount=False)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

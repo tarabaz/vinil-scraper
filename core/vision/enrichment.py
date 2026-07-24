@@ -317,15 +317,9 @@ def build_enrichment_message(
     return "\n\n".join(sections), discount_pct
 
 
-def format_digest_line(title: str, price, currency, merged: dict, candidates: list[dict]) -> str | None:
+def format_digest_line(title: str, price, currency, merged: dict, reference_prices: dict) -> str:
     """Riga sintetica (titolo, album, catalogo, prezzo eBay, prezzo Discogs
-    Good) per il comando /report — NON fa vision fresca, usa solo dati già
-    noti (titolo o cache). None se non c'è nessuna corrispondenza Discogs
-    (non "rientra nei parametri")."""
-    if not candidates:
-        return None
-
-    _, reference_prices = format_discogs_candidate(candidates[0], 1)
+    Good) per i comandi /report e /report_miei."""
     good_price = reference_prices.get(DEAL_CONDITION)
     good_text = f"€{good_price}" if good_price else "n/d"
 
@@ -337,16 +331,21 @@ def format_digest_line(title: str, price, currency, merged: dict, candidates: li
     return f"🎵 {html.escape(label)}{html.escape(catalog_part)} | eBay: {price} {currency} | Discogs (Good): {good_text}"
 
 
-def generate_digest(conn, limit: int, chat_id: int | None = None) -> list[str]:
+def generate_digest(conn, limit: int, chat_id: int | None = None, require_discount: bool = False) -> list[str]:
     """Righe sintetiche per gli annunci GIÀ nel DB (niente ricerca nuova sui
     marketplace) che hanno una corrispondenza Discogs, usando solo dati già
     noti (titolo o cache di vision_results — NON fa vision fresca, per
     restare veloce e senza costo su un check che può girare spesso).
 
-    chat_id=None mostra tutto, senza applicare nessun filtro personale
-    (report "globale"). Se passato, mostra solo gli annunci che
-    corrispondono al filtro personale di quell'utente (report "i miei
-    filtri")."""
+    chat_id=None mostra tutto, senza applicare nessun filtro personale; se
+    passato, mostra solo gli annunci che corrispondono al filtro personale
+    di quell'utente (report "i miei filtri" — non guarda il prezzo, solo
+    cosa interessa all'utente).
+
+    require_discount=True mostra solo gli annunci il cui prezzo è già sotto
+    il prezzo Discogs "Good" (un affare reale, non necessariamente sopra una
+    soglia fissa come il 50% — qualunque sconto positivo); False non
+    applica nessun filtro di prezzo."""
     rows = conn.execute("SELECT source, external_id, title, price, currency FROM listings ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
 
     lines = []
@@ -365,8 +364,16 @@ def generate_digest(conn, limit: int, chat_id: int | None = None) -> list[str]:
             merged = merge_photo_results(cached)
 
         candidates = find_discogs_candidates(merged)
-        line = format_digest_line(title, price, currency, merged, candidates)
-        if line:
-            lines.append(line)
+        if not candidates:
+            continue
+
+        _, reference_prices = format_discogs_candidate(candidates[0], 1)
+
+        if require_discount:
+            discount_pct = compute_discount_pct(price, currency, reference_prices)
+            if discount_pct is None or discount_pct <= 0:
+                continue
+
+        lines.append(format_digest_line(title, price, currency, merged, reference_prices))
 
     return lines
