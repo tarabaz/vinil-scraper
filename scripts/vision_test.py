@@ -16,6 +16,7 @@ Non fa parte della pipeline automatica di scripts.collect — è uno script a
 sé, da lanciare a mano quando si vuole verificare la qualità end-to-end
 (riconoscimento + prezzo Discogs + notifica)."""
 
+import html
 import re
 
 import requests
@@ -142,13 +143,16 @@ def find_discogs_candidates(merged: dict) -> list[dict]:
 
 def format_discogs_candidate(candidate: dict) -> str:
     details = " | ".join(
-        str(v) for v in (candidate.get("country"), candidate.get("year"), candidate.get("label"), candidate.get("catno")) if v
+        html.escape(str(v))
+        for v in (candidate.get("country"), candidate.get("year"), candidate.get("label"), candidate.get("catno"))
+        if v
     )
-    line = f"{candidate.get('title') or 'Release Discogs'}"
+    line = html.escape(candidate.get("title") or "Release Discogs")
     if details:
         line += f" ({details})"
 
-    discogs_url = f"\n  https://www.discogs.com/release/{candidate['id']}"
+    raw_url = f"https://www.discogs.com/release/{candidate['id']}"
+    discogs_url = f'\n  <a href="{html.escape(raw_url, quote=True)}">Link Discogs</a>'
 
     try:
         prices = get_price_suggestions(candidate["id"])
@@ -170,10 +174,12 @@ def format_discogs_candidate(candidate: dict) -> str:
     return line + discogs_url
 
 
-def build_summary_message(title: str, price, currency, url: str | None, merged: dict, candidates: list[dict]) -> str:
-    lines = [f"🎵 {title}", f"Prezzo annuncio: {price} {currency}"]
+def build_summary_message(
+    source: str, title: str, price, currency, url: str | None, merged: dict, candidates: list[dict]
+) -> str:
+    lines = [f"🎵 {html.escape(title or '')}", f"Prezzo annuncio: {price} {currency}"]
 
-    recognized = [f"{FIELD_LABELS[f]}: {merged[f]}" for f in merged if merged.get(f)]
+    recognized = [f"{FIELD_LABELS[f]}: {html.escape(merged[f])}" for f in merged if merged.get(f)]
     lines.append("Riconosciuto: " + (", ".join(recognized) if recognized else "nessun dato leggibile"))
 
     if candidates:
@@ -183,7 +189,8 @@ def build_summary_message(title: str, price, currency, url: str | None, merged: 
         lines.append("\nNessuna corrispondenza trovata su Discogs.")
 
     if url:
-        lines.append(f"\n{url}")
+        escaped_url = html.escape(url, quote=True)
+        lines.append(f'\n<a href="{escaped_url}">Link {source.capitalize()}</a>')
     return "\n".join(lines)
 
 
@@ -234,13 +241,13 @@ def main() -> None:
 
         merged = merge_photo_results(photo_results)
         candidates = find_discogs_candidates(merged)
-        message = build_summary_message(title, price, currency, url, merged, candidates)
+        message = build_summary_message(source, title, price, currency, url, merged, candidates)
 
         print("\n--- Riepilogo Discogs ---")
         print(message)
 
         try:
-            send_message(message)
+            send_message(message, parse_mode="HTML")
         except Exception as exc:
             print(f"[ERRORE] invio Telegram fallito: {exc}")
         print()

@@ -362,3 +362,7 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   dal primo, e il link diretto alla pagina Discogs (`discogs.com/release/id`)
   per ogni candidato nel messaggio Telegram, per poter confrontare a colpo
   d'occhio se la corrispondenza trovata è quella giusta
+- **2026-07-24** — I link nel messaggio Telegram di `vision_test` sono ora
+  testo cliccabile ("Link Ebay", "Link Discogs" sotto ogni candidato) invece
+  dell'URL grezzo per esteso, stesso stile già usato in `scripts.collect` —
+  titolo e dati riconosciuti correttamente escapati per HTML
