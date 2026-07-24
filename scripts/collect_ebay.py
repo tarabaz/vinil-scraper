@@ -6,7 +6,7 @@ from datetime import datetime
 
 from bot.notifier import send_message
 from core.collectors.ebay import find_category_id, search_items
-from core.db import get_connection, insert_listing
+from core.db import RETENTION_HOURS, cleanup_old_listings, get_connection, insert_listing
 from core.filters import load_rules, passes_filters
 
 SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti messaggi consecutivi
@@ -108,6 +108,11 @@ def collect(
 
 
 if __name__ == "__main__":
+    cleanup_conn = get_connection()
+    removed = cleanup_old_listings(cleanup_conn)
+    cleanup_conn.close()
+    print(f"Pulizia DB: rimossi {removed} annunci non visti da più di {RETENTION_HOURS} ore.\n")
+
     category_id = find_category_id("Vinyl Records")
     print(f"Categoria eBay usata per tutte le ricerche: {category_id}\n")
 
