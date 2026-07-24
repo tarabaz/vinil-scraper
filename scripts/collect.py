@@ -174,7 +174,10 @@ if __name__ == "__main__":
         for query in queries:
             print(f"\n=== [{marketplace}] Ricerca: {query} ===")
             search_settings = {"category_ids": ebay_category_id} if marketplace == "ebay" else {}
-            all_new_listings += collect(collector, query, **search_settings)
+            try:
+                all_new_listings += collect(collector, query, **search_settings)
+            except Exception as exc:
+                print(f"[ERRORE] Ricerca '{query}' su {marketplace} fallita, salto: {exc}")
 
     print(f"\n=== Ricerche completate: {len(all_new_listings)} annunci nuovi in totale, notifica in corso ===")
     notify_new_listings(all_new_listings)

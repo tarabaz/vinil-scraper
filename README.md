@@ -274,6 +274,14 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   marketplace API cercano per parola, non esiste un "dammi tutto"), ma sono
   ricerca, non filtri; il filtro/dedup/notifica restano un unico passaggio
   sui risultati aggregati
+- **2026-07-24** — Fix robustezza: se una query fallisce (es. Subito
+  risponde 403), le altre query/marketplace non vengono più perse — l'errore
+  viene loggato e la ricerca continua con quelle successive
+- **2026-07-24** — Collector Subito: header di richiesta più completi
+  (Accept, Accept-Language, Sec-Fetch-*) e una visita preventiva alla
+  homepage per ottenere i cookie di sessione prima della ricerca, nel
+  tentativo di superare il blocco 403 osservato contro il sito reale — non
+  garantito, ancora da verificare
 - **2026-07-24** — Ricerca per codice catalogo restringibile per paese/anno
 - **2026-07-24** — Ricerca eBay ristretta alla categoria ufficiale vinili (Taxonomy API)
 - **2026-07-24** — Fusione multi-foto e sistema di confidenza per i dischi rilevati (`core/vision/matching.py`)

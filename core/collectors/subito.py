@@ -21,10 +21,24 @@ from bs4 import BeautifulSoup
 from core.collectors.base import Listing
 
 SEARCH_URL = "https://www.subito.it/annunci-italia/vendita/usato/"
+HOME_URL = "https://www.subito.it/"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+# Header più completi di un solo User-Agent: molte protezioni anti-scraping
+# (403 "a freddo") controllano anche Accept/Accept-Language/Sec-Fetch-*, non
+# solo lo User-Agent.
+REQUEST_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+}
 
 
 def _extract_id_from_url(url: str | None) -> str | None:
@@ -53,15 +67,28 @@ def _parse_json_ld(html_text: str) -> list[dict]:
     return items
 
 
-def search_items(query: str, limit: int = 50) -> list[dict]:
-    """NON VERIFICATO contro subito.it reale — vedi il docstring del modulo."""
-    response = requests.get(
+def _fetch_search_page(query: str) -> requests.Response:
+    """Prima visita la homepage per ottenere i cookie di sessione (alcune
+    protezioni anti-scraping bloccano richieste 'a freddo' senza una
+    navigazione precedente), poi fa la ricerca vera con un Referer plausibile."""
+    session = requests.Session()
+    session.headers.update(REQUEST_HEADERS)
+
+    session.get(HOME_URL, timeout=15)
+
+    response = session.get(
         SEARCH_URL,
-        headers={"User-Agent": USER_AGENT},
         params={"q": query},
+        headers={"Referer": HOME_URL},
         timeout=15,
     )
     response.raise_for_status()
+    return response
+
+
+def search_items(query: str, limit: int = 50) -> list[dict]:
+    """NON VERIFICATO contro subito.it reale — vedi il docstring del modulo."""
+    response = _fetch_search_page(query)
 
     structured = _parse_json_ld(response.text)
 
