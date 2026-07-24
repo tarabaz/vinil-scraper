@@ -22,7 +22,7 @@ import re
 import requests
 
 from bot.notifier import send_message
-from core.collectors.discogs import get_price_suggestions, price_range, search_by_catalog_number, search_release
+from core.collectors.discogs import get_price_suggestions, search_by_catalog_number, search_release
 from core.collectors.ebay import get_item_images
 from core.db import get_connection, insert_vision_result
 from core.vision.ollama_vision import FIELDS, recognize_image
@@ -31,6 +31,13 @@ VISION_TEST_LIMIT = 2  # bassissimo apposta: è solo un test manuale
 VISION_TEST_OFFSET = 1  # salta il 1° annuncio (Nirvana, già testato) e prende il 2° e 3°
 MAX_IMAGES_PER_LISTING = 5  # un lotto può avere decine di foto, non le processiamo tutte in prova
 MAX_DISCOGS_CANDIDATES = 3  # un codice catalogo può corrispondere a più edizioni: le mostriamo tutte, non ne mediamo i prezzi
+
+# Fasce di prezzo Discogs mostrate come riferimento qualitativo nel messaggio.
+# "Good (G)" è quella usata per valutare l'affare (% rispetto al prezzo annuncio):
+# non troppo ottimista come Very Good, non troppo pessimista come Poor.
+REFERENCE_CONDITIONS = ["Poor (P)", "Good (G)", "Very Good (VG)"]
+REFERENCE_LABELS = {"Poor (P)": "Poor", "Good (G)": "Good", "Very Good (VG)": "Very Good"}
+DEAL_CONDITION = "Good (G)"
 
 FIELD_LABELS = {
     "artist": "Artista",
@@ -141,7 +148,21 @@ def find_discogs_candidates(merged: dict) -> list[dict]:
     return []
 
 
-def format_discogs_candidate(candidate: dict) -> str:
+def get_reference_prices(release_id: int) -> dict:
+    """Prezzi Discogs arrotondati all'euro intero per le tre condizioni di
+    riferimento (Poor/Good/Very Good). Dict vuoto se non disponibili (release
+    senza dati di prezzo)."""
+    try:
+        prices = get_price_suggestions(release_id)
+    except requests.exceptions.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return {}
+        raise
+    return {condition: round(prices[condition]["value"]) for condition in REFERENCE_CONDITIONS if condition in prices}
+
+
+def format_discogs_candidate(candidate: dict) -> tuple[str, dict]:
+    """Ritorna (testo formattato del candidato, prezzi di riferimento arrotondati)."""
     details = " | ".join(
         html.escape(str(v))
         for v in (candidate.get("country"), candidate.get("year"), candidate.get("label"), candidate.get("catno"))
@@ -155,36 +176,58 @@ def format_discogs_candidate(candidate: dict) -> str:
     discogs_url = f'\n  <a href="{html.escape(raw_url, quote=True)}">Link Discogs</a>'
 
     try:
-        prices = get_price_suggestions(candidate["id"])
-        low, high = price_range(prices)
-    except requests.exceptions.HTTPError as exc:
-        if exc.response is not None and exc.response.status_code == 404:
-            return f"{line} — nessun prezzo disponibile su Discogs per questa edizione{discogs_url}"
-        return f"{line} — prezzo non disponibile (errore Discogs: {exc}){discogs_url}"
+        reference_prices = get_reference_prices(candidate["id"])
     except Exception as exc:
-        return f"{line} — prezzo non disponibile ({exc}){discogs_url}"
+        return f"{line} — prezzo non disponibile (errore Discogs: {exc}){discogs_url}", {}
 
-    if low and high:
-        if low == high:
-            line += f" — prezzo Discogs: {low['value']} {low['currency']}"
-        else:
-            line += f" — prezzo Discogs: {low['value']}–{high['value']} {high['currency']}"
+    if reference_prices:
+        price_line = " | ".join(f"{REFERENCE_LABELS[c]}: €{reference_prices[c]}" for c in REFERENCE_CONDITIONS if c in reference_prices)
+        line += f"\n  {price_line}"
     else:
         line += " — nessun prezzo suggerito su Discogs"
-    return line + discogs_url
+    return line + discogs_url, reference_prices
+
+
+def build_discount_line(listing_price, listing_currency: str | None, reference_prices: dict) -> str:
+    """% rispetto al prezzo Discogs in condizione Good, calcolata solo se il
+    prezzo dell'annuncio e quello Discogs sono nella stessa valuta (EUR)."""
+    good_price = reference_prices.get(DEAL_CONDITION)
+    if not good_price or listing_price is None or (listing_currency or "").upper() != "EUR":
+        return ""
+
+    discount_pct = round((good_price - listing_price) / good_price * 100)
+    if discount_pct > 0:
+        return f"🔻 -{discount_pct}% rispetto a Discogs (Good)\n\n"
+    if discount_pct < 0:
+        return f"🔺 +{abs(discount_pct)}% rispetto a Discogs (Good)\n\n"
+    return "➖ Prezzo in linea con Discogs (Good)\n\n"
 
 
 def build_summary_message(
     source: str, title: str, price, currency, url: str | None, merged: dict, candidates: list[dict]
 ) -> str:
-    lines = [f"🎵 {html.escape(title or '')}", f"Prezzo annuncio: {price} {currency}"]
+    candidate_lines = []
+    best_reference_prices: dict = {}
+    for i, candidate in enumerate(candidates):
+        text, reference_prices = format_discogs_candidate(candidate)
+        candidate_lines.append(f"- {text}")
+        if i == 0:
+            best_reference_prices = reference_prices
+
+    discount_line = build_discount_line(price, currency, best_reference_prices)
+
+    lines = []
+    if discount_line:
+        lines.append(discount_line.rstrip())
+    lines.append(f"🎵 {html.escape(title or '')}")
+    lines.append(f"Prezzo annuncio: {price} {currency}")
 
     recognized = [f"{FIELD_LABELS[f]}: {html.escape(merged[f])}" for f in merged if merged.get(f)]
     lines.append("Riconosciuto: " + (", ".join(recognized) if recognized else "nessun dato leggibile"))
 
     if candidates:
         lines.append("\nDiscogs:")
-        lines += [f"- {format_discogs_candidate(c)}" for c in candidates]
+        lines += candidate_lines
     else:
         lines.append("\nNessuna corrispondenza trovata su Discogs.")
 

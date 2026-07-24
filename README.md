@@ -366,3 +366,10 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   testo cliccabile ("Link Ebay", "Link Discogs" sotto ogni candidato) invece
   dell'URL grezzo per esteso, stesso stile già usato in `scripts.collect` —
   titolo e dati riconosciuti correttamente escapati per HTML
+- **2026-07-24** — Prezzi Discogs arrotondati all'euro intero (niente più
+  decimali illeggibili) e mostrati su tre fasce di riferimento (Poor/Good/
+  Very Good) invece di un range basso-alto. Aggiunta la % rispetto al
+  prezzo Discogs in condizione "Good" (usata come riferimento per valutare
+  l'affare) prima del titolo nel messaggio — per ora solo informativa, in
+  futuro (a limiti di test rimossi) sarà il criterio per decidere se
+  notificare o no un annuncio
