@@ -444,3 +444,8 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
     riepilogo di `/cerca`) — se non è già un affare non interessa vederlo.
   - `/report_miei`: applica il filtro personale di chi lo lancia (cosa gli
     interessa), senza nessun filtro di prezzo.
+- **2026-07-24** — Rimosso il tetto di 10 annunci "validi" per esecuzione
+  (`MAX_ENRICHED_LISTINGS_PER_RUN`) e quello sul totale controllato
+  (`MAX_LISTINGS_CHECKED_PER_RUN`), usati solo per le prove a basso volume
+  — ora `None` (nessun limite), `/cerca` arricchisce e notifica tutti gli
+  annunci nuovi/backlog trovati in un giro, non solo i primi 10.

@@ -21,15 +21,13 @@ from core.vision.enrichment import build_enrichment_message, enrich_listing
 
 SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti messaggi consecutivi
 
-# LIMITI TEMPORANEI per le prove: ogni annuncio arricchito richiede ricerca
-# Discogs (e a volte vision su più foto), quindi vanno tenuti bassi finché
-# si sta testando. MAX_ENRICHED_LISTINGS_PER_RUN conta solo gli annunci
-# "validi" (con almeno una corrispondenza Discogs); MAX_LISTINGS_CHECKED_PER_RUN
-# è un tetto separato sul totale controllato, per non finire a processare
-# centinaia di annunci solo perché pochi hanno una corrispondenza. Da
-# alzare/rimuovere quando si passa all'uso reale.
-MAX_ENRICHED_LISTINGS_PER_RUN = 10
-MAX_LISTINGS_CHECKED_PER_RUN = 30
+# Tetti opzionali sugli annunci arricchiti per esecuzione — None = nessun
+# limite. MAX_ENRICHED_LISTINGS_PER_RUN conterebbe solo gli annunci
+# "validi" (con corrispondenza Discogs); MAX_LISTINGS_CHECKED_PER_RUN è un
+# tetto separato sul totale controllato. Utili se in futuro servisse di
+# nuovo limitare il costo di una scansione molto grande.
+MAX_ENRICHED_LISTINGS_PER_RUN = None
+MAX_LISTINGS_CHECKED_PER_RUN = None
 MAX_IMAGES_PER_LISTING = 5  # un lotto può avere decine di foto, non le processiamo tutte
 
 PROGRESS_EDIT_EVERY = 5  # ogni quanti annunci controllati aggiornare il messaggio di avanzamento
@@ -108,7 +106,9 @@ def notify_new_listings(new_listings: list[dict], errors: list[str] | None = Non
 
     if items_to_process and users:
         for item in items_to_process:
-            if valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN or checked_count >= MAX_LISTINGS_CHECKED_PER_RUN:
+            if MAX_ENRICHED_LISTINGS_PER_RUN is not None and valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN:
+                break
+            if MAX_LISTINGS_CHECKED_PER_RUN is not None and checked_count >= MAX_LISTINGS_CHECKED_PER_RUN:
                 break
             checked_count += 1
 
@@ -165,9 +165,9 @@ def notify_new_listings(new_listings: list[dict], errors: list[str] | None = Non
     if items_to_process:
         summary_lines.append(f"{checked_count} controllati, {valid_count} con corrispondenza Discogs, {notified_count} notificati.")
         summary_lines.append(f"{under_threshold_count} sotto il {UNDER_VALUE_THRESHOLD_PCT}% del valore Discogs (Good).")
-        if valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN:
+        if MAX_ENRICHED_LISTINGS_PER_RUN is not None and valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN:
             summary_lines.append(f"⚠️ Limite di {MAX_ENRICHED_LISTINGS_PER_RUN} annunci validi raggiunto in questo giro.")
-        elif checked_count >= MAX_LISTINGS_CHECKED_PER_RUN:
+        elif MAX_LISTINGS_CHECKED_PER_RUN is not None and checked_count >= MAX_LISTINGS_CHECKED_PER_RUN:
             summary_lines.append(f"⚠️ Limite di {MAX_LISTINGS_CHECKED_PER_RUN} annunci controllati raggiunto in questo giro.")
     if errors:
         summary_lines.append(f"⚠️ {len(errors)} ricerche fallite: " + "; ".join(errors))
