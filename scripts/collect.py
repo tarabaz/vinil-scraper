@@ -57,22 +57,29 @@ def build_message(item: dict) -> str:
     )
 
 
+_notifications_sent = 0  # contatore globale: collect() (e quindi notify_new_listings)
+                          # viene chiamata una volta per ogni query, il limite deve
+                          # valere per l'intera esecuzione, non resettarsi ad ogni query
+_cap_warning_shown = False
+
+
 def notify_new_listings(new_listings: list[dict]) -> None:
     """Ricerca unica e globale: ogni utente approvato riceve solo gli
     annunci che passano anche il proprio filtro personale (nessun filtro
     personale impostato = riceve tutto). Il totale dei messaggi inviati in
-    questa esecuzione è limitato da MAX_NOTIFICATIONS_PER_RUN."""
+    tutta l'esecuzione dello script è limitato da MAX_NOTIFICATIONS_PER_RUN."""
+    global _notifications_sent, _cap_warning_shown
+
     users = list_approved()
     if not users or not new_listings:
         return
 
-    sent_count = 0
-    capped = False
     for item in new_listings:
+        if _notifications_sent >= MAX_NOTIFICATIONS_PER_RUN:
+            break
         message = build_message(item)
         for user in users:
-            if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
-                capped = True
+            if _notifications_sent >= MAX_NOTIFICATIONS_PER_RUN:
                 break
             if not matches_user_filter(user["chat_id"], item["title"]):
                 continue
@@ -80,15 +87,14 @@ def notify_new_listings(new_listings: list[dict]) -> None:
                 send_message(message, parse_mode="HTML", chat_id=user["chat_id"])
             except Exception as exc:
                 print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
-            sent_count += 1
+            _notifications_sent += 1
             time.sleep(SECONDS_BETWEEN_MESSAGES)
-        if capped:
-            break
 
-    if capped:
+    if _notifications_sent >= MAX_NOTIFICATIONS_PER_RUN and not _cap_warning_shown:
+        _cap_warning_shown = True
         print(
-            f"\n⚠️  Limite di {MAX_NOTIFICATIONS_PER_RUN} notifiche per esecuzione raggiunto: "
-            "il resto dei nuovi annunci non è stato inviato su Telegram in questo giro "
+            f"\n⚠️  Limite di {MAX_NOTIFICATIONS_PER_RUN} notifiche per l'intera esecuzione raggiunto: "
+            "gli annunci nuovi successivi non vengono più inviati su Telegram in questo giro "
             "(restano comunque salvati nel DB)."
         )
 
