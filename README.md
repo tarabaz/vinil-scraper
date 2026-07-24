@@ -41,15 +41,30 @@ piccolo che funziona.
   globale gli vengono notificati — nessun filtro impostato = riceve tutto
 - ✅ Fusione multi-foto e sistema di confidenza (`core/vision/matching.py`):
   la logica che unirà i dati letti da foto diverse dello stesso disco in
-  un'unica voce — pronta, non ancora collegata a un detector/OCR reale
-- ✅ Pipeline end-to-end: marketplace abilitati → filtri → dedup → notifica
+  un'unica voce — pronta, non ancora collegata alla fusione multi-disco per
+  i lotti (l'unione oggi è "ingenua", primo valore trovato per campo)
+- ✅ **Riconoscimento vision locale** (`core/vision/ollama_vision.py`, via
+  Ollama/qwen2.5vl) **collegato alla pipeline reale**
+  (`core/vision/enrichment.py`): per ogni annuncio nuovo prova prima a
+  leggere artista/album dal titolo (gratis), poi controlla se è già stato
+  processato in precedenza (niente doppia chiamata alla vision), solo come
+  ultima risorsa guarda le foto (tutte quelle dell'annuncio, non solo
+  l'anteprima)
+- ✅ **Arricchimento Discogs collegato alla pipeline**: cerca per codice
+  catalogo se letto (più preciso), altrimenti artista+titolo; il messaggio
+  Telegram mostra i dati riconosciuti, i prezzi Discogs (Poor/Good/Very
+  Good) e la % rispetto al prezzo Discogs "Good" — limitato ai primi 10
+  annunci "validi" (con corrispondenza Discogs) per esecuzione
+- ✅ Pipeline end-to-end: marketplace abilitati → filtri → dedup →
+  arricchimento (vision + Discogs) → notifica
 
-**Non ancora implementato**: fase vision vera (detector per isolare i
-dischi nelle foto di lotti, OCR, escalation locale/cloud), arricchimento
-Discogs collegato alla pipeline (oggi "prezzo realistico" è un placeholder),
-calcolo del margine reale, contatore di spesa giornaliero, scheduling
-automatico ogni 10 minuti, collector Facebook Marketplace (escluso di
-proposito: nessuna API pubblica, rischio alto).
+**Non ancora implementato**: fusione multi-disco per lotti con più record
+diversi nelle stesse foto (oggi l'unione dei dati tra foto è "ingenua"),
+escalation vision locale/cloud per bassa confidenza, calcolo del margine
+reale come criterio di notifica (per ora la % di sconto è solo
+informativa), contatore di spesa giornaliero, scheduling automatico ogni 10
+minuti, collector Facebook Marketplace (escluso di proposito: nessuna API
+pubblica, rischio alto).
 
 ## Architettura
 
@@ -135,7 +150,8 @@ vinil-scraper/
 │   ├── notifications.py          # tracking annunci già notificati per utente
 │   ├── vision/
 │   │   ├── matching.py          # fusione multi-foto + confidenza (dischi)
-│   │   └── ollama_vision.py     # riconoscimento locale via Ollama (qwen2.5vl)
+│   │   ├── ollama_vision.py     # riconoscimento locale via Ollama (qwen2.5vl)
+│   │   └── enrichment.py        # titolo->cache->vision + Discogs + messaggio (condiviso)
 │   └── collectors/
 │       ├── base.py              # tipo Listing + interfaccia Collector
 │       ├── registry.py          # mappa marketplace -> classe collector
@@ -378,3 +394,18 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   separata da una riga vuota e con intestazione in grassetto, invece di
   tutto compresso su poche righe — ogni dato riconosciuto e ogni candidato
   Discogs (numerati se più di uno) su blocchi propri
+- **2026-07-24** — Vision e ricerca Discogs collegate alla pipeline reale
+  (`scripts.collect`), non più solo allo script di test isolato. Nuovo
+  modulo condiviso `core/vision/enrichment.py` (usato sia da
+  `scripts.collect` che da `scripts.vision_test`) con arricchimento a costo
+  crescente: prova prima a leggere artista/album dal **titolo**
+  (gratis, pattern "Artista - Album"), poi controlla se l'annuncio è **già
+  stato processato** in precedenza (righe già in `vision_results`, non
+  richiama il modello), solo come ultima risorsa usa la **vision sulle
+  foto**. La notifica arricchita (dati riconosciuti + Discogs + % sconto)
+  sostituisce il vecchio messaggio "prezzo realistico: non disponibile" —
+  limitata ai primi `MAX_ENRICHED_LISTINGS_PER_RUN` (10) annunci "validi"
+  (con almeno una corrispondenza Discogs trovata) per esecuzione; gli
+  annunci senza corrispondenza non vengono notificati né contano nel
+  limite. `notify_backlog_for_user` (filtri personali) usa ancora il
+  messaggio semplice, non ancora aggiornato all'arricchimento.

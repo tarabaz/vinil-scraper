@@ -19,16 +19,19 @@ from core.query_defaults import DEFAULT_GENRE_QUERIES, DEFAULT_LOT_QUERIES
 from core.settings import get_setting
 from core.user_filters import matches_user_filter
 from core.users import ensure_admin_registered, list_approved
+from core.vision.enrichment import build_enrichment_message, enrich_listing
 
 SECONDS_BETWEEN_MESSAGES = 1  # evita il flood control di Telegram su tanti messaggi consecutivi
 
 # LIMITE TEMPORANEO per le prove: la ricerca reale può trovare centinaia di
-# annunci nuovi al primo giro (il DB parte vuoto), che diventerebbero
-# altrettanti messaggi Telegram. Finché si sta testando, cap totale di
-# messaggi inviati per esecuzione — gli annunci oltre il limite restano
-# comunque salvati nel DB (non si perdono), semplicemente non notificati
-# in questo giro. Da alzare/rimuovere quando si passa all'uso reale.
-MAX_NOTIFICATIONS_PER_RUN = 5
+# annunci nuovi al primo giro (il DB parte vuoto). Ogni annuncio arricchito
+# richiede ricerca Discogs (e a volte vision su più foto), quindi va tenuto
+# basso finché si sta testando. Conta solo gli annunci "validi" (con almeno
+# una corrispondenza Discogs trovata) — gli altri non vengono nemmeno
+# arricchiti oltre il tentativo. Da alzare/rimuovere quando si passa
+# all'uso reale.
+MAX_ENRICHED_LISTINGS_PER_RUN = 10
+MAX_IMAGES_PER_LISTING = 5  # un lotto può avere decine di foto, non le processiamo tutte
 
 # Quando un utente aggiunge/attiva una parola nei propri filtri personali,
 # notify_backlog_for_user() controlla anche gli annunci già nel DB (non solo
@@ -66,25 +69,37 @@ def build_message(item: dict) -> str:
 
 def notify_new_listings(new_listings: list[dict]) -> None:
     """Va chiamata UNA SOLA VOLTA, con i nuovi annunci già aggregati da tutte
-    le query di ricerca. Ricerca unica e globale: ogni utente approvato
-    riceve solo gli annunci che passano anche il proprio filtro personale
-    (nessun filtro personale impostato = riceve tutto). Il totale dei
-    messaggi inviati è limitato da MAX_NOTIFICATIONS_PER_RUN. Ogni invio
-    viene registrato (core.notifications) per non rimandare mai due volte
-    lo stesso annuncio allo stesso utente."""
+    le query di ricerca. Per ognuno: arricchisce con dati riconosciuti
+    (titolo -> cache -> vision, il meno costoso che basta) e cerca su
+    Discogs, poi notifica solo i primi MAX_ENRICHED_LISTINGS_PER_RUN annunci
+    "validi" (con almeno una corrispondenza Discogs) — gli annunci senza
+    corrispondenza non contano nel limite né vengono notificati, restano
+    comunque salvati nel DB. Ricerca unica e globale: ogni utente approvato
+    riceve solo gli annunci che passano anche il proprio filtro personale.
+    Ogni invio viene registrato (core.notifications) per non rimandare mai
+    due volte lo stesso annuncio allo stesso utente."""
     users = list_approved()
     if not users or not new_listings:
         return
 
     conn = get_connection()
-    sent_count = 0
+    valid_count = 0
     for item in new_listings:
-        if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
+        if valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN:
             break
-        message = build_message(item)
+
+        enrichment = enrich_listing(
+            conn, item["source"], item["external_id"], item["title"], item.get("image_url"), max_images=MAX_IMAGES_PER_LISTING
+        )
+        if not enrichment["candidates"]:
+            continue  # nessuna corrispondenza Discogs: non "valido", non conta nel limite
+
+        valid_count += 1
+        message = build_enrichment_message(
+            item["source"], item["title"], item["price"], item["currency"], item["url"], enrichment["merged"], enrichment["candidates"]
+        )
+
         for user in users:
-            if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
-                break
             if has_been_notified(conn, user["chat_id"], item["source"], item["external_id"]):
                 continue
             if not matches_user_filter(user["chat_id"], item["title"]):
@@ -94,14 +109,13 @@ def notify_new_listings(new_listings: list[dict]) -> None:
                 mark_notified(conn, user["chat_id"], item["source"], item["external_id"])
             except Exception as exc:
                 print(f"[ERRORE] invio a {user['chat_id']} fallito: {exc}")
-            sent_count += 1
             time.sleep(SECONDS_BETWEEN_MESSAGES)
     conn.close()
 
-    if sent_count >= MAX_NOTIFICATIONS_PER_RUN:
+    if valid_count >= MAX_ENRICHED_LISTINGS_PER_RUN:
         print(
-            f"\n⚠️  Limite di {MAX_NOTIFICATIONS_PER_RUN} notifiche raggiunto: "
-            "il resto dei nuovi annunci non è stato inviato su Telegram in questo giro "
+            f"\n⚠️  Limite di {MAX_ENRICHED_LISTINGS_PER_RUN} annunci validi raggiunto: "
+            "il resto dei nuovi annunci non è stato processato in questo giro "
             "(restano comunque salvati nel DB)."
         )
 
