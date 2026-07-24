@@ -332,3 +332,9 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   codice a barre da una foto reale). Script di solo test manuale
   (`scripts/vision_test.py`, limite bassissimo di 2 annunci per prova) — non
   è ancora collegato alla pipeline automatica né alla ricerca Discogs
+- **2026-07-24** — Fix: il test vision usava solo l'anteprima 225px salvata
+  nel DB (una per annuncio) invece di tutte le foto in alta risoluzione —
+  nuova `core/collectors/ebay.get_item_images()` (chiamata `getItem`,
+  fronte/retro/etichetta) con tetto `MAX_IMAGES_PER_LISTING` per non
+  processare decine di foto di un lotto in una prova — non ancora verificata
+  contro l'API eBay reale

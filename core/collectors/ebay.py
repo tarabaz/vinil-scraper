@@ -3,6 +3,7 @@
 import base64
 import os
 import time
+from urllib.parse import quote
 
 import requests
 from dotenv import load_dotenv
@@ -16,6 +17,7 @@ EBAY_CERT_ID = os.getenv("EBAY_CERT_ID")
 
 TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+ITEM_URL_TEMPLATE = "https://api.ebay.com/buy/browse/v1/item/{item_id}"
 CATEGORY_TREE_ID_URL = "https://api.ebay.com/commerce/taxonomy/v1/get_default_category_tree_id"
 CATEGORY_SUGGESTIONS_URL_TEMPLATE = (
     "https://api.ebay.com/commerce/taxonomy/v1/category_tree/{tree_id}/get_category_suggestions"
@@ -124,6 +126,33 @@ def search_items(
             }
         )
     return results
+
+
+def get_item_images(item_id: str, marketplace: str = "EBAY_IT") -> list[str]:
+    """Tutte le foto di un annuncio (fronte, retro, etichetta...), non solo
+    l'anteprima restituita da search_items — richiede una chiamata di
+    dettaglio (getItem) per singolo annuncio, quindi va usata con parsimonia
+    (non su centinaia di risultati di ricerca)."""
+    token = get_access_token()
+    response = requests.get(
+        ITEM_URL_TEMPLATE.format(item_id=quote(item_id, safe="")),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-EBAY-C-MARKETPLACE-ID": marketplace,
+        },
+        timeout=10,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    images = []
+    main_image = payload.get("image") or {}
+    if main_image.get("imageUrl"):
+        images.append(main_image["imageUrl"])
+    for extra in payload.get("additionalImages") or []:
+        if extra.get("imageUrl"):
+            images.append(extra["imageUrl"])
+    return images
 
 
 def _to_listing(item: dict) -> Listing:
