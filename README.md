@@ -344,3 +344,10 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   barcode, altro) invece di descrizioni in prosa — salvato nel DB (nuova
   tabella `vision_results`, una riga per foto) e stampato come riga
   sintetica invece del testo lungo di prima
+- **2026-07-24** — `scripts.vision_test` ora unisce i dati letti dalle foto
+  di uno stesso annuncio (unione ingenua, primo valore trovato per campo —
+  non ancora la fusione multi-disco per i lotti), cerca su Discogs (codice
+  catalogo se disponibile, altrimenti artista+titolo — mai media i prezzi
+  tra edizioni diverse, mostra tutti i candidati trovati) e manda un
+  messaggio Telegram di riepilogo per annuncio: prezzo dell'annuncio, dati
+  riconosciuti, prezzo Discogs per edizione, link
