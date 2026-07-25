@@ -199,6 +199,13 @@ def _candidate_artist(candidate_title: str | None) -> str | None:
     return _split_candidate_title(candidate_title)[0]
 
 
+def _trace(msg: str) -> None:
+    """Log sintetico di un passaggio dell'identificazione, passo passo —
+    utile in fase di test per capire perché un disco viene trovato/scartato
+    invece di scoprirlo solo dal risultato finale."""
+    print(f"    ↳ {msg}")
+
+
 def _candidate_plausibly_matches(record: dict, candidate: dict, title_threshold: float = TITLE_MATCH_THRESHOLD) -> bool:
     """Verifica di sanità applicata a QUALSIASI candidato trovato, a
     prescindere da come lo si è cercato (codice catalogo, barcode, artista,
@@ -212,14 +219,17 @@ def _candidate_plausibly_matches(record: dict, candidate: dict, title_threshold:
     candidate_artist, candidate_album = _split_candidate_title(candidate.get("title"))
 
     if not _titles_plausibly_match(record.get("album_title"), candidate_album, threshold=title_threshold):
+        _trace(f"scarto '{candidate.get('title')}': titolo troppo diverso da '{record.get('album_title')}'")
         return False
 
     recognized_artist = record.get("artist")
     if recognized_artist and candidate_artist:
         ratio = difflib.SequenceMatcher(None, recognized_artist.lower(), candidate_artist.lower()).ratio()
         if ratio < ARTIST_MATCH_THRESHOLD:
+            _trace(f"scarto '{candidate.get('title')}': artista '{candidate_artist}' non combacia con '{recognized_artist}'")
             return False
 
+    _trace(f"'{candidate.get('title')}' plausibile → accettato")
     return True
 
 
@@ -232,19 +242,24 @@ def _search_single_candidate(record: dict) -> dict | None:
     find_discogs_candidates verifica sempre che titolo E (se letto) artista
     del candidato somiglino a quelli riconosciuti, scartando abbinamenti
     implausibili invece di accettare il primo risultato a occhi chiusi."""
+    _trace(f"disco da identificare: artista={record.get('artist')!r}, titolo={record.get('album_title')!r}, catalogo={record.get('catalog_number')!r}, barcode={record.get('barcode')!r}")
+
     if record.get("catalog_number"):
         raw = record["catalog_number"]
         for candidate_value in dict.fromkeys([clean_catalog_number(raw), raw]):
+            _trace(f"cerco su Discogs per codice catalogo '{candidate_value}'...")
             try:
                 candidates = search_by_catalog_number(candidate_value)
             except Exception as exc:
                 print(f"[ERRORE] ricerca Discogs per codice catalogo '{candidate_value}' fallita: {exc}")
                 continue
+            _trace(f"{len(candidates)} candidati trovati per codice catalogo")
             for candidate in candidates:
                 if _candidate_plausibly_matches(record, candidate):
                     return candidate
 
     if record.get("artist") and record.get("album_title"):
+        _trace(f"cerco su Discogs per artista+titolo esatto '{record['artist']}' / '{record['album_title']}'...")
         try:
             release = search_release(record["artist"], record["album_title"])
         except Exception as exc:
@@ -261,6 +276,8 @@ def _search_single_candidate(record: dict) -> dict | None:
             }
             if _candidate_plausibly_matches(record, candidate):
                 return candidate
+        else:
+            _trace("nessun risultato per artista+titolo esatto")
 
     if record.get("album_title"):
         # Rete di sicurezza ad ampio raggio: scatta ogni volta che le
@@ -275,15 +292,18 @@ def _search_single_candidate(record: dict) -> dict | None:
         # segnale di conferma — un titolo generico può appartenere a più
         # dischi diversi.
         threshold = TITLE_MATCH_THRESHOLD if record.get("artist") else TITLE_ONLY_MATCH_THRESHOLD
+        _trace(f"rete di sicurezza: cerco su Discogs per solo titolo '{record['album_title']}' (soglia somiglianza {threshold})...")
         try:
             candidates = search_by_title(record["album_title"])
         except Exception as exc:
             print(f"[ERRORE] ricerca Discogs per solo titolo fallita: {exc}")
             candidates = []
+        _trace(f"{len(candidates)} candidati trovati per solo titolo")
         for candidate in candidates:
             if _candidate_plausibly_matches(record, candidate, title_threshold=threshold):
                 return candidate
 
+    _trace("nessuna corrispondenza Discogs plausibile per questo disco")
     return None
 
 
@@ -308,6 +328,7 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[lis
         if not any(record.get(f) for f in MERGE_FIELDS):
             continue  # foto/riga senza nulla di leggibile, non genera una detection
 
+        print(f"  📷 {photo_id}")
         candidate = _search_single_candidate(record)
         release_id = candidate["id"] if candidate else None
         if candidate:
@@ -339,6 +360,8 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[lis
     grouped_items = group_detections(detections)
     total_groups = len(grouped_items)
 
+    print(f"  📊 {total_groups} dischi distinti rilevati nelle foto, verifico quali tenere...")
+
     items = []
     for grouped in grouped_items:
         if grouped.release_id is None and not (grouped.catno or grouped.barcode):
@@ -346,7 +369,10 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[lis
             # catalogo/barcode): probabilmente testo letto male dalla vision
             # (es. una scritta promozionale scambiata per il titolo) — meglio
             # scartarlo che mostrarlo come un disco fantasma in più nel lotto.
+            print(f"    ✗ scarto '{grouped.title}': nessun match Discogs e nessun segnale forte (probabile testo letto male)")
             continue
+
+        print(f"    ✓ tengo '{grouped.title}' (artista: {grouped.artist})")
 
         candidate = candidates_by_release.get(grouped.release_id)
         merged = {field: None for field in MERGE_FIELDS}

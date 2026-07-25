@@ -600,3 +600,10 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   non scattava perché l'artista era comunque presente). Soglia di
   somiglianza sul titolo adattiva: normale se c'è un artista noto da
   confermare col controllo incrociato, più severa se no.
+- **2026-07-25** — Log passo-passo nel terminale per ogni disco durante
+  l'identificazione (`core/vision/enrichment.py`): quale ricerca viene
+  tentata (codice catalogo / artista+titolo / rete di sicurezza per solo
+  titolo), quanti candidati trova, quali vengono scartati e perché (titolo
+  o artista non plausibili), quali dischi vengono tenuti o scartati come
+  fantasma dopo il raggruppamento — prima si vedeva solo il risultato
+  finale, bisognava indovinare il perché di un mancato riconoscimento.
