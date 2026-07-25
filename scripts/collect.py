@@ -111,10 +111,12 @@ def notify_new_listings(new_listings: list[dict], errors: list[str] | None = Non
             if MAX_LISTINGS_CHECKED_PER_RUN is not None and checked_count >= MAX_LISTINGS_CHECKED_PER_RUN:
                 break
             checked_count += 1
+            print(f"[{checked_count}/{len(items_to_process)}] Arricchimento: {item['title']}")
 
             enrichment = enrich_listing(
                 conn, item["source"], item["external_id"], item["title"], item.get("image_url"), max_images=MAX_IMAGES_PER_LISTING
             )
+            print(f"    fonte dati: {enrichment['source_of_data']}, corrispondenze Discogs: {len(enrichment['candidates'])}")
 
             if enrichment["candidates"]:
                 valid_count += 1
@@ -130,6 +132,9 @@ def notify_new_listings(new_listings: list[dict], errors: list[str] | None = Non
                 is_deal = discount_pct is not None and discount_pct >= UNDER_VALUE_THRESHOLD_PCT
                 if is_deal:
                     under_threshold_count += 1
+                    print(f"    ✅ affare: sconto {discount_pct}% vs Discogs (Good)")
+                elif discount_pct is not None:
+                    print(f"    scarto {discount_pct}% vs Discogs (Good), sotto soglia")
 
                 # Notifica solo i veri affari (sconto >= soglia): gli altri
                 # restano comunque nel DB, recuperabili con /report.

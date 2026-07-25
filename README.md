@@ -457,3 +457,8 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   Telegram. Riordinate anche le sezioni del messaggio: link eBay subito
   dopo i dati riconosciuti (prima era in fondo, dopo Discogs), poi la
   sezione Discogs con il proprio link in coda.
+- **2026-07-24** — La fase di arricchimento (dopo la ricerca) ora stampa il
+  progresso anche nel terminale, non solo su Telegram: per ogni annuncio,
+  fonte del dato (titolo/cache/vision), corrispondenze Discogs trovate e
+  se supera la soglia dell'affare — prima il terminale restava silenzioso
+  durante questa fase, sembrava bloccato.
