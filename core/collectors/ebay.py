@@ -155,7 +155,11 @@ def get_item_images(item_id: str, marketplace: str = "EBAY_IT") -> list[str]:
     for extra in payload.get("additionalImages") or []:
         if extra.get("imageUrl"):
             images.append(extra["imageUrl"])
-    return images
+    # eBay a volte elenca lo stesso URL più volte tra le foto di un annuncio
+    # (galleria con doppioni reali) — senza togliere questi doppioni la
+    # stessa foto verrebbe passata alla vision più volte come se fossero
+    # scatti diversi, portando a "dischi" ripetuti nel risultato finale.
+    return list(dict.fromkeys(images))
 
 
 def extract_legacy_item_id(url: str) -> str | None:
@@ -194,6 +198,7 @@ def get_item_by_legacy_id(legacy_item_id: str, marketplace: str = "EBAY_IT") -> 
     for extra in payload.get("additionalImages") or []:
         if extra.get("imageUrl"):
             images.append(extra["imageUrl"])
+    images = list(dict.fromkeys(images))  # eBay a volte elenca lo stesso URL più volte
 
     return {
         "source": "ebay",

@@ -696,3 +696,29 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   titolo E come nome di un album reale della stessa band) resta un limite
   residuo più difficile da escludere algoritmicamente senza rischiare di
   scartare titoli legittimi di una sola parola.
+- **2026-07-25** — Trovata la VERA causa dei doppioni sul lotto Queen (non
+  ancora risolta dai due fix precedenti: una foto continuava a comparire 5
+  volte identiche anche con vision fresca, dopo il fix del modello che
+  ripete letture nella stessa risposta). Causa reale: `get_item_images()`
+  (`core/collectors/ebay.py`) non toglieva i doppioni dalla lista foto
+  restituita da eBay — se eBay elenca lo stesso URL più volte tra le
+  `additionalImages` di un annuncio (capita davvero, gallerie con foto
+  duplicate), la vision veniva chiamata più volte separate sulla stessa
+  identica immagine: non ripetizione dentro UNA risposta (quello il fix
+  precedente lo intercetta), ma chiamate multiple e "legittime" sullo
+  stesso URL, quindi invisibili a quel fix. Tolti i doppioni URL sia in
+  `get_item_images()` sia in `get_item_by_legacy_id()` (stesso problema,
+  usata da `scripts.test_listing`), più una rete di sicurezza extra in
+  `core.vision.enrichment.get_all_images()`.
+- **2026-07-25** — Osservazione dallo stesso test: `search_release()`
+  (ricerca Discogs per artista+titolo esatto, senza codice catalogo) può
+  restituire release_id DIVERSI per la stessa identica query ripetuta più
+  volte nello stesso giro (es. "Queen"/"A Night at the Opera" → a volte
+  release 4342189, altre volte 7611970 — edizioni diverse dello stesso
+  disco, Discogs non è perfettamente deterministico su query con molti
+  candidati quasi equivalenti). Effetto: lo stesso disco fisico letto da
+  foto diverse può finire smistato su release_id diversi e non fondersi
+  correttamente, anche con tutti i fix precedenti. Non ancora risolto —
+  è il limite architetturale già segnalato in precedenza (raggruppamento
+  basato su release_id, non su un confronto diretto artista+titolo tra
+  gli item finali).

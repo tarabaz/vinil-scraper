@@ -101,7 +101,7 @@ def get_all_images(source: str, external_id: str, fallback_image_url: str | None
     immagine già disponibile."""
     if source == "ebay":
         try:
-            images = get_item_images(external_id)
+            images = list(dict.fromkeys(get_item_images(external_id)))  # rete di sicurezza extra contro doppioni
             if images:
                 return images[:max_images]
         except Exception as exc:
