@@ -225,10 +225,12 @@ def _candidate_plausibly_matches(record: dict, candidate: dict, title_threshold:
 
 def _search_single_candidate(record: dict) -> dict | None:
     """Cerca UN disco (per identificarlo dentro il raggruppamento di un
-    lotto): preferisce il codice catalogo, altrimenti artista+titolo, poi
-    solo titolo come ultima risorsa — ma a differenza di
-    find_discogs_candidates verifica che titolo E (se letto) artista del
-    candidato somiglino a quelli riconosciuti, scartando abbinamenti
+    lotto): preferisce il codice catalogo (più preciso), poi artista+titolo
+    esatto, poi una ricerca per solo titolo come rete di sicurezza finale —
+    quest'ultima scatta ogni volta che le prime due non hanno trovato nulla
+    di plausibile, non solo quando manca l'artista. A differenza di
+    find_discogs_candidates verifica sempre che titolo E (se letto) artista
+    del candidato somiglino a quelli riconosciuti, scartando abbinamenti
     implausibili invece di accettare il primo risultato a occhi chiusi."""
     if record.get("catalog_number"):
         raw = record["catalog_number"]
@@ -260,18 +262,26 @@ def _search_single_candidate(record: dict) -> dict | None:
             if _candidate_plausibly_matches(record, candidate):
                 return candidate
 
-    if record.get("album_title") and not record.get("artist"):
-        # Ultimo tentativo: titolo leggibile ma artista non riconosciuto
-        # (es. copertina con logo stilizzato). Nessun artista ad ancorare il
-        # match, quindi soglia di somiglianza più severa della ricerca con
-        # artista noto — un titolo generico può appartenere a più dischi.
+    if record.get("album_title"):
+        # Rete di sicurezza ad ampio raggio: scatta ogni volta che le
+        # ricerche più mirate sopra non hanno trovato nulla, non solo
+        # quando manca l'artista — capita anche quando l'artista letto non
+        # combacia esattamente con la stringa indicizzata da Discogs (piccole
+        # differenze di grafia, alias, ecc.) e search_release non trova
+        # nulla pur essendo il disco giusto. Se abbiamo comunque un artista
+        # letto, il controllo incrociato su di esso resta la rete di
+        # sicurezza (soglia normale sul titolo); se non lo abbiamo, soglia
+        # più severa sul titolo per compensare la mancanza di un secondo
+        # segnale di conferma — un titolo generico può appartenere a più
+        # dischi diversi.
+        threshold = TITLE_MATCH_THRESHOLD if record.get("artist") else TITLE_ONLY_MATCH_THRESHOLD
         try:
             candidates = search_by_title(record["album_title"])
         except Exception as exc:
             print(f"[ERRORE] ricerca Discogs per solo titolo fallita: {exc}")
             candidates = []
         for candidate in candidates:
-            if _candidate_plausibly_matches(record, candidate, title_threshold=TITLE_ONLY_MATCH_THRESHOLD):
+            if _candidate_plausibly_matches(record, candidate, title_threshold=threshold):
                 return candidate
 
     return None

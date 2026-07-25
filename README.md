@@ -588,3 +588,15 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
     identificati, il messaggio lo segnala esplicitamente ("su 2 di 4 dischi
     rilevati") invece di far sembrare lo sconto calcolato sull'intero lotto
     quando in realtà copre solo una parte.
+- **2026-07-25** — Generalizzata la rete di sicurezza per solo titolo: prima
+  scattava solo quando l'artista non era stato letto dalla vision; ora
+  scatta ogni volta che le ricerche più mirate (codice catalogo,
+  artista+titolo esatto) non trovano nulla di plausibile, anche con
+  l'artista noto — capita quando la stringa letta non combacia
+  esattamente con quella indicizzata da Discogs pur essendo il disco
+  giusto (bug reale trovato su un quarto disco dello stesso lotto,
+  "Catcher in the Sky" di Francesco De Gregori: titolo perfettamente
+  leggibile ma la ricerca esatta non trovava nulla, e la rete di sicurezza
+  non scattava perché l'artista era comunque presente). Soglia di
+  somiglianza sul titolo adattiva: normale se c'è un artista noto da
+  confermare col controllo incrociato, più severa se no.
