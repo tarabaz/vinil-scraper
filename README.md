@@ -676,3 +676,23 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
     serve cancellare le righe in `vision_results` per quell'annuncio e
     ririchiamare la vision perché il fix abbia effetto pieno (la rete di
     sicurezza aiuta comunque anche sui dati vecchi, ma non recupera tutto).
+- **2026-07-25** — Ritestato lo stesso lotto Queen dopo i fix sopra: da 11 a
+  6 "dischi" (i doppioni identici sono stati fusi correttamente), ma ne
+  restavano ancora 2 palesemente sbagliati — "Uriah Heep - Wake Up" (una
+  release completamente diversa abbinata per errore a un codice catalogo
+  generico che ha dato 50 candidati) e "Queen" (l'album omonimo, non parte
+  di questo lotto da 2 dischi). Causa: sia il confronto titolo (0.38) sia
+  quello artista (0.40) superavano per un pelo le soglie di somiglianza
+  (0.3 e 0.4) — non per somiglianza reale, ma per coincidenza di poche
+  lettere/parole corte in comune (es. "the"): su decine di candidati
+  scartati capita facilmente per puro caso. Corretto togliendo le parole
+  troppo comuni (the/a/of/in/and/...) dal confronto prima di calcolare la
+  somiglianza (`_normalize_for_comparison`, `_text_similarity` in
+  `core/vision/enrichment.py`) e alzando le soglie con un margine di
+  sicurezza più realistico (titolo 0.3→0.35, solo titolo 0.6→0.65, artista
+  0.4→0.5) — verificato che tutti i casi già corretti in precedenza (Bino/
+  Pino Daniele, L'Orso Bruno, Catcher in the Sky, ecc.) continuano a
+  passare. Il caso "Queen" (parola singola, genericamente plausibile come
+  titolo E come nome di un album reale della stessa band) resta un limite
+  residuo più difficile da escludere algoritmicamente senza rischiare di
+  scartare titoli legittimi di una sola parola.

@@ -164,8 +164,25 @@ def find_discogs_candidates(merged: dict, max_candidates: int = MAX_DISCOGS_CAND
     return []
 
 
-TITLE_MATCH_THRESHOLD = 0.3  # con un altro segnale (catalogo, artista) ad ancorare il match
-TITLE_ONLY_MATCH_THRESHOLD = 0.6  # nessun altro segnale: la sola somiglianza del titolo deve bastare da sola
+TITLE_MATCH_THRESHOLD = 0.35  # con un altro segnale (catalogo, artista) ad ancorare il match
+TITLE_ONLY_MATCH_THRESHOLD = 0.65  # nessun altro segnale: la sola somiglianza del titolo deve bastare da sola
+
+# Parole troppo comuni per essere un segnale di somiglianza reale — su
+# stringhe corte (titoli/artisti) possono far sembrare simili due cose del
+# tutto diverse solo perché condividono "the"/"a"/ecc (bug reale: "A Night
+# at the Opera" vs "Wake Up - The Singles Collection" superava la soglia
+# solo grazie a "the" in comune, su 50 candidati capita facilmente per caso).
+_COMPARISON_STOPWORDS = {"the", "a", "an", "of", "in", "and", "feat", "featuring"}
+_WORD_PATTERN = re.compile(r"[a-z0-9']+")
+
+
+def _normalize_for_comparison(text: str) -> str:
+    words = [w for w in _WORD_PATTERN.findall(text.lower()) if w not in _COMPARISON_STOPWORDS]
+    return " ".join(words) if words else text.lower()
+
+
+def _text_similarity(a: str, b: str) -> float:
+    return difflib.SequenceMatcher(None, _normalize_for_comparison(a), _normalize_for_comparison(b)).ratio()
 
 
 def _titles_plausibly_match(recognized_title: str | None, candidate_title: str | None, threshold: float = TITLE_MATCH_THRESHOLD) -> bool:
@@ -176,11 +193,10 @@ def _titles_plausibly_match(recognized_title: str | None, candidate_title: str |
     diverso — senza questo controllo verrebbe accettata comunque."""
     if not recognized_title or not candidate_title:
         return True  # niente da confrontare, non possiamo scartare per sicurezza
-    ratio = difflib.SequenceMatcher(None, recognized_title.lower(), candidate_title.lower()).ratio()
-    return ratio >= threshold
+    return _text_similarity(recognized_title, candidate_title) >= threshold
 
 
-ARTIST_MATCH_THRESHOLD = 0.4
+ARTIST_MATCH_THRESHOLD = 0.5  # nomi corti: senza margine, coincidenze casuali di poche lettere superano soglie basse
 
 
 def _split_candidate_title(candidate_title: str | None) -> tuple[str | None, str]:
@@ -224,7 +240,7 @@ def _candidate_plausibly_matches(record: dict, candidate: dict, title_threshold:
 
     recognized_artist = record.get("artist")
     if recognized_artist and candidate_artist:
-        ratio = difflib.SequenceMatcher(None, recognized_artist.lower(), candidate_artist.lower()).ratio()
+        ratio = _text_similarity(recognized_artist, candidate_artist)
         if ratio < ARTIST_MATCH_THRESHOLD:
             _trace(f"scarto '{candidate.get('title')}': artista '{candidate_artist}' non combacia con '{recognized_artist}'")
             return False
