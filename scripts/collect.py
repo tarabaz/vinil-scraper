@@ -116,9 +116,11 @@ def notify_new_listings(new_listings: list[dict], errors: list[str] | None = Non
             enrichment = enrich_listing(
                 conn, item["source"], item["external_id"], item["title"], item.get("image_url"), max_images=MAX_IMAGES_PER_LISTING
             )
-            print(f"    fonte dati: {enrichment['source_of_data']}, corrispondenze Discogs: {len(enrichment['candidates'])}")
+            items = enrichment["items"]
+            matched_count = sum(1 for it in items if it["candidates"])
+            print(f"    fonte dati: {enrichment['source_of_data']}, dischi identificati: {len(items)}, con corrispondenza Discogs: {matched_count}")
 
-            if enrichment["candidates"]:
+            if matched_count:
                 valid_count += 1
                 message, discount_pct = build_enrichment_message(
                     item["source"],
@@ -126,8 +128,7 @@ def notify_new_listings(new_listings: list[dict], errors: list[str] | None = Non
                     item["price"],
                     item["currency"],
                     item["url"],
-                    enrichment["merged"],
-                    enrichment["candidates"],
+                    items,
                 )
                 is_deal = discount_pct is not None and discount_pct >= UNDER_VALUE_THRESHOLD_PCT
                 if is_deal:

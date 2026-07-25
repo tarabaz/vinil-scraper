@@ -38,6 +38,7 @@ class Detection:
     release_id: int | None = None
     title: str | None = None
     catno: str | None = None
+    barcode: str | None = None
     country: str | None = None
     label: str | None = None
     signals: dict[str, bool | float] = field(default_factory=dict)
@@ -51,6 +52,7 @@ class Item:
     release_id: int | None
     title: str | None
     catno: str | None
+    barcode: str | None
     country: str | None
     label: str | None
     photo_ids: list[str]
@@ -83,13 +85,14 @@ def _merge_field(current: str | None, new: str | None) -> str | None:
 
 
 def _merge_detections(detections: list[Detection]) -> Item:
-    title = catno = country = label = None
+    title = catno = barcode = country = label = None
     photo_ids = []
     merged_signals: dict[str, bool | float] = {}
 
     for d in detections:
         title = _merge_field(title, d.title)
         catno = _merge_field(catno, d.catno)
+        barcode = _merge_field(barcode, d.barcode)
         country = _merge_field(country, d.country)
         label = _merge_field(label, d.label)
         photo_ids.append(d.photo_id)
@@ -101,6 +104,7 @@ def _merge_detections(detections: list[Detection]) -> Item:
         release_id=detections[0].release_id,
         title=title,
         catno=catno,
+        barcode=barcode,
         country=country,
         label=label,
         photo_ids=photo_ids,

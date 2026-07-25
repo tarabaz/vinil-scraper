@@ -56,12 +56,14 @@ def main() -> None:
     enrichment = enrich_listing(
         conn, item["source"], item["external_id"], item["title"], first_image, max_images=MAX_IMAGES_PER_LISTING
     )
+    items = enrichment["items"]
     print(f"Fonte dati: {enrichment['source_of_data']}")
-    print(f"Riconosciuto: {enrichment['merged']}")
-    print(f"Candidati Discogs: {len(enrichment['candidates'])}")
+    print(f"Dischi identificati: {len(items)}")
+    for i, it in enumerate(items, start=1):
+        print(f"  Disco {i}: {it['merged']} — {len(it['candidates'])} candidati Discogs")
 
     message, discount_pct = build_enrichment_message(
-        item["source"], item["title"], item["price"], item["currency"], item["url"], enrichment["merged"], enrichment["candidates"]
+        item["source"], item["title"], item["price"], item["currency"], item["url"], items
     )
 
     print(f"\n--- Messaggio (% sconto: {discount_pct}) ---")

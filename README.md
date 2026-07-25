@@ -488,3 +488,28 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   quest'ultima testata su vari formati di URL eBay, la chiamata API non
   verificata contro il servizio reale (nessuna credenziale in questo
   ambiente).
+- **2026-07-24** — Riconoscimento e messaggio riscritti per gestire i
+  **lotti con più dischi diversi**, non solo un disco per annuncio (bug
+  reale trovato testando `scripts.test_listing` su un lotto vero: un
+  secondo disco spariva silenziosamente, e la % di sconto confrontava il
+  prezzo dell'intero lotto con il prezzo Discogs di UN SOLO disco).
+  - Il prompt vision ora chiede un **array JSON** (un elemento per ogni
+    disco visibile nella foto, anche più di uno se la foto mostra più
+    copertine/retri insieme) invece di un oggetto singolo —
+    `recognize_image()` ritorna una lista.
+  - Ogni disco riconosciuto viene cercato su Discogs **singolarmente**
+    (non più dopo aver unito i dati di tutte le foto), poi
+    `core/vision/matching.py` (fusione multi-foto, pronta da mesi ma mai
+    collegata) raggruppa le rilevazioni con lo stesso release_id in foto
+    diverse come lo stesso disco fotografato più volte, distinguendo
+    dischi diversi anche nella stessa foto.
+  - `enrich_listing()` ritorna ora una lista di dischi identificati
+    (`items`), non più uno solo; il messaggio Telegram resta **unico per
+    annuncio** con una sotto-sezione "Disco N" per ciascuno (nessuna
+    numerazione superflua se il disco è uno solo).
+  - La % di sconto per un lotto è calcolata sulla **somma** dei prezzi
+    Discogs (Good) di tutti i dischi identificati contro il prezzo
+    dell'intero lotto, non più un disco confrontato col prezzo di tutto il
+    lotto.
+  - `/report` e `/report_miei` generano una riga per **disco** identificato,
+    non più una per annuncio (un lotto con 3 dischi validi genera 3 righe).

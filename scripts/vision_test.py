@@ -36,13 +36,13 @@ def main() -> None:
         print(f"=== {title} ===")
 
         enrichment = enrich_listing(conn, source, external_id, title, image_url, max_images=MAX_IMAGES_PER_LISTING)
+        items = enrichment["items"]
         print(f"Fonte dati: {enrichment['source_of_data']}")
-        print(f"Riconosciuto: {enrichment['merged']}")
-        print(f"Candidati Discogs: {len(enrichment['candidates'])}")
+        print(f"Dischi identificati: {len(items)}")
+        for i, it in enumerate(items, start=1):
+            print(f"  Disco {i}: {it['merged']} — {len(it['candidates'])} candidati Discogs")
 
-        message, discount_pct = build_enrichment_message(
-            source, title, price, currency, url, enrichment["merged"], enrichment["candidates"]
-        )
+        message, discount_pct = build_enrichment_message(source, title, price, currency, url, items)
 
         print("\n--- Messaggio ---")
         print(f"(% sconto: {discount_pct})")
