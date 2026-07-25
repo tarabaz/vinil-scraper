@@ -130,4 +130,23 @@ def recognize_image(image_bytes: bytes, prompt: str = PROMPT) -> list[dict]:
         return [_empty_result(raw)]
 
     results = [_parse_entry(entry, raw) for entry in parsed]
+    results = _dedupe_identical(results)
     return results or [_empty_result(raw)]
+
+
+def _dedupe_identical(results: list[dict]) -> list[dict]:
+    """Il modello a volte ripete la stessa identica lettura più volte nella
+    stessa risposta (comportamento noto dei modelli generativi, non un
+    disco fisico in più) — senza questo, un raggruppamento a valle
+    (core.vision.matching) le scambierebbe per prova di copie fisiche
+    duplicate nella stessa foto. Tiene solo la prima occorrenza di ogni
+    combinazione identica di campi."""
+    seen = set()
+    deduped = []
+    for r in results:
+        key = tuple(r.get(f) for f in FIELDS)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(r)
+    return deduped

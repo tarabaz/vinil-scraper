@@ -28,6 +28,7 @@ SIGNAL_WEIGHTS = {
 
 CONFIDENCE_HIGH = 0.5
 CONFIDENCE_MEDIUM = 0.25
+CONFIRMATION_BONUS_PER_PHOTO = 0.1  # per ogni foto DISTINTA in più che conferma lo stesso disco
 
 
 @dataclass
@@ -103,6 +104,22 @@ def _merge_detections(detections: list[Detection]) -> Item:
         merged_signals.update(d.signals)
 
     score, level = compute_confidence(merged_signals)
+
+    distinct_photos = len(set(photo_ids))
+    if distinct_photos > 1:
+        # Più foto DIVERSE confermano indipendentemente lo stesso disco
+        # (stesso release_id): è una conferma che rafforza la fiducia nel
+        # dato, non va ignorata. Conta le foto distinte, non le rilevazioni
+        # grezze — letture ripetute nella STESSA foto sono rumore (es. il
+        # modello che si ripete), non conferme indipendenti.
+        confirmation_bonus = min(CONFIRMATION_BONUS_PER_PHOTO * (distinct_photos - 1), 1.0 - score)
+        score = min(score + confirmation_bonus, 1.0)
+        if score >= CONFIDENCE_HIGH:
+            level = "alta"
+        elif score >= CONFIDENCE_MEDIUM:
+            level = "media"
+        else:
+            level = "bassa"
 
     return Item(
         release_id=detections[0].release_id,

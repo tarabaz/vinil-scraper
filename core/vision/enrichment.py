@@ -32,7 +32,7 @@ from core.collectors.discogs import get_marketplace_stats, get_price_suggestions
 from core.collectors.ebay import get_item_images
 from core.db import insert_vision_result
 from core.user_filters import matches_user_filter
-from core.vision.matching import Detection, group_detections
+from core.vision.matching import CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, CONFIRMATION_BONUS_PER_PHOTO, Detection, group_detections
 from core.vision.ollama_vision import FIELDS, recognize_image
 
 MERGE_FIELDS = [f for f in FIELDS if f != "other_text"]
@@ -320,6 +320,45 @@ def _search_single_candidate(record: dict) -> dict | None:
     return None
 
 
+def _dedupe_identical_items(items: list[dict]) -> list[dict]:
+    """Rete di sicurezza finale: se più item hanno dati riconosciuti
+    ESATTAMENTE identici (stesso artista, titolo, codice catalogo, barcode,
+    etichetta), quasi certamente sono lo stesso disco fisico contato più
+    volte — indipendentemente dal perché (il modello vision che ripete la
+    stessa lettura nella stessa foto, o Discogs che assegna release_id
+    leggermente diversi alla stessa identica ricerca ripetuta su foto
+    diverse). Non è rumore da scartare: più letture indipendenti convergono
+    sullo stesso dato, più è probabile che sia corretto — invece di
+    limitarsi a tenere il primo, ne rafforza l'affidabilità (un bonus per
+    ogni conferma in più, con lo stesso sistema di soglie alta/media/bassa
+    di core.vision.matching)."""
+    groups: dict[tuple, list[dict]] = {}
+    order: list[tuple] = []
+    empty_key = tuple("" for _ in MERGE_FIELDS)
+    for item in items:
+        m = item["merged"]
+        key = tuple((m.get(f) or "").strip().lower() for f in MERGE_FIELDS)
+        if key == empty_key:
+            # Nessun dato riconosciuto in comune da confrontare: non ha
+            # senso raggrupparlo con altri, resta a sé.
+            key = ("__unico__", id(item))
+        if key not in groups:
+            order.append(key)
+        groups.setdefault(key, []).append(item)
+
+    deduped = []
+    for key in order:
+        group = groups[key]
+        best = max(group, key=lambda it: len(it["candidates"]))
+        if len(group) > 1:
+            bonus = CONFIRMATION_BONUS_PER_PHOTO * (len(group) - 1)
+            new_score = min((best.get("confidence_score") or 0.0) + bonus, 1.0)
+            level = "alta" if new_score >= CONFIDENCE_HIGH else "media" if new_score >= CONFIDENCE_MEDIUM else "bassa"
+            best = {**best, "confidence_score": new_score, "confidence_level": level}
+        deduped.append(best)
+    return deduped
+
+
 def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[list[dict], int]:
     """Da una lista di (photo_id, record riconosciuto) produce (items, numero
     totale di dischi distinti rilevati prima di scartare quelli deboli).
@@ -414,7 +453,14 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[lis
                 "confidence_level": grouped.confidence_level,
             }
         )
-    return items, total_groups
+
+    deduped_items = _dedupe_identical_items(items)
+    if len(deduped_items) < len(items):
+        removed = len(items) - len(deduped_items)
+        total_groups -= removed
+        print(f"  🧹 {removed} doppioni con dati identici fusi (affidabilità rafforzata invece di scartati)")
+
+    return deduped_items, total_groups
 
 
 def get_reference_prices(release_id: int) -> dict:

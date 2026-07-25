@@ -644,3 +644,35 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
     della stessa release) venivano controllati e loggati uno per uno anche
     se il risultato è identico per tutti (dipende solo dal testo) — ora
     controllato una volta sola per titolo.
+- **2026-07-25** — Bug reale grave trovato su un lotto Queen (2 dischi
+  fisici, "A Night at the Opera" + "A Day at the Races"): il messaggio
+  mostrava **11 dischi**, con "A Night at the Opera" ripetuto identico 6
+  volte. Causa: per una foto ravvicinata del codice catalogo sul vinile, il
+  modello aveva ripetuto la stessa identica lettura 5 volte nel suo stesso
+  array JSON — questi 5 "dischi" identici, tutti nella STESSA foto,
+  facevano scattare per errore la regola "stesso release_id nella stessa
+  foto = copie fisiche reali" (pensata per il caso raro di 2 copie vere
+  fotografate insieme), gonfiando artificialmente il conteggio e portando
+  a scartare anche il raggruppamento corretto con un'altra foto dello
+  stesso disco. Due fix, uno alla radice e uno di sicurezza:
+  - `core/vision/ollama_vision.recognize_image()` ora scarta le letture
+    ESATTAMENTE identiche già nella risposta di una singola foto
+    (`_dedupe_identical`), prima che possano confondere il raggruppamento
+    a valle — risolve il problema alla fonte per ogni nuova chiamata vision.
+  - `core/vision/enrichment.build_items_from_records()` ha una rete di
+    sicurezza finale (`_dedupe_identical_items`) che fonde comunque item
+    con dati identici anche se sfuggiti al primo fix (es. dati già in
+    cache da prima di questo fix, o Discogs che assegna release_id diversi
+    alla stessa identica ricerca ripetuta su foto diverse).
+  - Entrambi i fix, su richiesta esplicita, non si limitano a scartare i
+    doppioni: più letture indipendenti convergono sullo stesso dato, più
+    è probabile che sia corretto — quindi lo confermano rafforzando
+    l'affidabilità invece di ignorarlo. Il bonus (`CONFIRMATION_BONUS_PER_PHOTO`
+    in `core/vision/matching.py`) conta solo foto **distinte**: letture
+    ripetute nella stessa foto (il bug qui sopra) sono rumore, non
+    conferme indipendenti, e non lo attivano.
+  - Nota per chi ha già annunci in cache da prima di questo fix: il primo
+    fix non può correggere retroattivamente dati vision già salvati —
+    serve cancellare le righe in `vision_results` per quell'annuncio e
+    ririchiamare la vision perché il fix abbia effetto pieno (la rete di
+    sicurezza aiuta comunque anche sui dati vecchi, ma non recupera tutto).
