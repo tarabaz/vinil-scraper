@@ -472,3 +472,19 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   fonte del dato (titolo/cache/vision), corrispondenze Discogs trovate e
   se supera la soglia dell'affare — prima il terminale restava silenzioso
   durante questa fase, sembrava bloccato.
+- **2026-07-24** — Nuovo `scripts/scheduler.py`: processo persistente
+  separato che lancia una scansione ogni ora (`INTERVAL_SECONDS`) senza
+  bisogno del bot Telegram acceso. Nel messaggio arricchito "Catalogo" ora
+  compare sempre nei dati riconosciuti ("non identificato" se manca)
+  invece di sparire silenziosamente quando il match Discogs viene trovato
+  solo via artista+titolo, segnale più debole del codice catalogo.
+- **2026-07-24** — Nuovo `scripts/test_listing.py`: testa l'intera
+  pipeline (riconoscimento + Discogs + messaggio) su UN annuncio eBay
+  specifico dato il suo link, senza aspettare che salti fuori da una
+  ricerca — utile per verificare un lotto particolare (es. multi-disco).
+  Nuova `core/collectors/ebay.get_item_by_legacy_id()` (recupera un
+  annuncio dal suo ID legacy, quello degli URL standard, via l'endpoint
+  eBay dedicato) e `extract_legacy_item_id()` per estrarlo da un URL —
+  quest'ultima testata su vari formati di URL eBay, la chiamata API non
+  verificata contro il servizio reale (nessuna credenziale in questo
+  ambiente).

@@ -2,6 +2,7 @@
 
 import base64
 import os
+import re
 import time
 from urllib.parse import quote
 
@@ -18,6 +19,8 @@ EBAY_CERT_ID = os.getenv("EBAY_CERT_ID")
 TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
 ITEM_URL_TEMPLATE = "https://api.ebay.com/buy/browse/v1/item/{item_id}"
+ITEM_BY_LEGACY_ID_URL = "https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id"
+LEGACY_ITEM_ID_PATTERN = re.compile(r"/itm/(?:[^/?]+/)?(\d{9,15})")
 CATEGORY_TREE_ID_URL = "https://api.ebay.com/commerce/taxonomy/v1/get_default_category_tree_id"
 CATEGORY_SUGGESTIONS_URL_TEMPLATE = (
     "https://api.ebay.com/commerce/taxonomy/v1/category_tree/{tree_id}/get_category_suggestions"
@@ -153,6 +156,55 @@ def get_item_images(item_id: str, marketplace: str = "EBAY_IT") -> list[str]:
         if extra.get("imageUrl"):
             images.append(extra["imageUrl"])
     return images
+
+
+def extract_legacy_item_id(url: str) -> str | None:
+    """Estrae l'ID numerico legacy da un URL eBay standard, es.
+    https://www.ebay.it/itm/257613721232 o
+    https://www.ebay.it/itm/Titolo-annuncio/257613721232 — quello che
+    compare quando si copia il link di un annuncio dal browser."""
+    match = LEGACY_ITEM_ID_PATTERN.search(url)
+    return match.group(1) if match else None
+
+
+def get_item_by_legacy_id(legacy_item_id: str, marketplace: str = "EBAY_IT") -> dict:
+    """Recupera i dettagli completi (titolo, prezzo, tutte le foto) di UN
+    singolo annuncio a partire dal suo ID legacy (quello degli URL
+    standard) — utile per testare la pipeline su un annuncio specifico
+    invece che aspettare che salti fuori da una ricerca. Non verificata
+    contro l'API reale (nessuna credenziale in questo ambiente)."""
+    token = get_access_token()
+    response = requests.get(
+        ITEM_BY_LEGACY_ID_URL,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-EBAY-C-MARKETPLACE-ID": marketplace,
+        },
+        params={"legacy_item_id": legacy_item_id},
+        timeout=10,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    price = payload.get("price") or {}
+    images = []
+    main_image = payload.get("image") or {}
+    if main_image.get("imageUrl"):
+        images.append(main_image["imageUrl"])
+    for extra in payload.get("additionalImages") or []:
+        if extra.get("imageUrl"):
+            images.append(extra["imageUrl"])
+
+    return {
+        "source": "ebay",
+        "external_id": payload["itemId"],
+        "title": payload.get("title"),
+        "price": float(price["value"]) if "value" in price else None,
+        "currency": price.get("currency"),
+        "url": payload.get("itemWebUrl"),
+        "images": images,
+        "listed_at": payload.get("itemCreationDate"),
+    }
 
 
 def _to_listing(item: dict) -> Listing:
