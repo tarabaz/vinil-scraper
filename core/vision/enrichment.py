@@ -300,7 +300,16 @@ def build_enrichment_message(
     sections.append(f"🎵 <b>{html.escape(title or '')}</b>\n💰 Prezzo annuncio: {price} {currency}")
 
     if merged and any(merged.values()):
-        recognized_lines = [f"{FIELD_LABELS[f]}: {html.escape(merged[f])}" for f in merged if merged.get(f)]
+        recognized_lines = []
+        for f in merged:
+            if f == "catalog_number":
+                # Il codice catalogo è il segnale più preciso per la ricerca
+                # Discogs: se manca, un match trovato via artista+titolo è
+                # più debole — meglio dirlo esplicitamente che ometterlo.
+                value = html.escape(merged[f]) if merged.get(f) else "non identificato"
+                recognized_lines.append(f"{FIELD_LABELS[f]}: {value}")
+            elif merged.get(f):
+                recognized_lines.append(f"{FIELD_LABELS[f]}: {html.escape(merged[f])}")
         sections.append("📋 <b>Dati riconosciuti</b>\n" + "\n".join(recognized_lines))
     else:
         sections.append("📋 Nessun dato riconosciuto")

@@ -250,6 +250,16 @@ python -m scripts.collect
 Il DB SQLite (`data/listings.db`) tiene traccia di cosa è già stato
 notificato, quindi le esecuzioni successive segnalano solo i nuovi annunci.
 
+Scansione automatica a intervalli regolari — **processo separato e
+persistente**, va lasciato aperto in un terminale (indipendente dal bot:
+non serve `bot.settings_menu.py` in esecuzione, manda i messaggi per conto
+suo). Un giro ogni ora di default (`INTERVAL_SECONDS` in
+`scripts/scheduler.py`):
+
+```bash
+python -m scripts.scheduler
+```
+
 Menu impostazioni su Telegram — **processo separato e persistente**, va
 lasciato aperto in un terminale mentre lo si usa (non lanciato dallo
 scheduler dei collector):
