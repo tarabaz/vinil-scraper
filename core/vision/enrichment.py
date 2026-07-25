@@ -200,7 +200,7 @@ def _search_single_candidate(record: dict) -> dict | None:
         except Exception as exc:
             print(f"[ERRORE] ricerca Discogs per artista/titolo fallita: {exc}")
             release = None
-        if release:
+        if release and _titles_plausibly_match(record.get("album_title"), release.get("title")):
             return {
                 "id": release["id"],
                 "title": release.get("title"),
@@ -211,6 +211,16 @@ def _search_single_candidate(record: dict) -> dict | None:
             }
 
     return None
+
+
+def _has_strong_signal(record: dict) -> bool:
+    """Codice catalogo o barcode: gli unici segnali abbastanza univoci da
+    fidarsi di un disco anche senza una corrispondenza Discogs trovata (es.
+    release non presente su Discogs, ma il codice letto è comunque un dato
+    reale). Un titolo/etichetta senza questi è troppo a rischio di essere
+    testo letto male dalla vision (es. una scritta promozionale sul retro
+    scambiata per il titolo dell'album) per fidarsene da solo."""
+    return bool(record.get("catalog_number") or record.get("barcode"))
 
 
 def build_items_from_records(photo_records: list[tuple[str, dict]]) -> list[dict]:
@@ -230,6 +240,14 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> list[dict
 
         candidate = _search_single_candidate(record)
         release_id = candidate["id"] if candidate else None
+
+        if release_id is None and not _has_strong_signal(record):
+            # Nessuna corrispondenza Discogs e nessun segnale forte (codice
+            # catalogo/barcode): probabilmente testo letto male dalla vision
+            # (es. una scritta promozionale scambiata per il titolo) — meglio
+            # scartarlo che mostrarlo come un disco fantasma in più nel lotto.
+            continue
+
         if candidate:
             candidates_by_release[release_id] = candidate
 

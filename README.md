@@ -522,3 +522,16 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   `_search_single_candidate` verifica che il titolo del candidato Discogs
   somigli almeno un po' a quello riconosciuto prima di accettarlo,
   scartando abbinamenti implausibili invece di mostrarli come corretti.
+- **2026-07-25** — Fix "dischi fantasma": nello stesso lotto Iron Maiden,
+  una foto senza nessuna corrispondenza Discogs (testo del retro letto
+  male dalla vision, es. una scritta promozionale scambiata per il titolo
+  dell'album — "Brazilian Invasion" invece di un disco reale) veniva
+  comunque promossa a un disco a sé stante nel messaggio, come se fosse un
+  quinto disco esistente nel lotto. Ora una rilevazione senza corrispondenza
+  Discogs **e** senza codice catalogo/barcode (l'unico segnale
+  abbastanza univoco da fidarsene comunque) viene scartata invece di
+  diventare un item — meglio nessun disco in più che uno inventato. Stesso
+  fix esteso alla ricerca di ripiego artista+titolo in
+  `_search_single_candidate`, che prima accettava il primo risultato
+  Discogs senza verificarne la somiglianza col titolo riconosciuto (solo
+  la ricerca per codice catalogo aveva già questo controllo).
