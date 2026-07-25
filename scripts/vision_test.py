@@ -42,7 +42,7 @@ def main() -> None:
         for i, it in enumerate(items, start=1):
             print(f"  Disco {i}: {it['merged']} — {len(it['candidates'])} candidati Discogs")
 
-        message, discount_pct = build_enrichment_message(source, title, price, currency, url, items)
+        message, discount_pct = build_enrichment_message(source, title, price, currency, url, items, total_detected=enrichment["total_detected"])
 
         print("\n--- Messaggio ---")
         print(f"(% sconto: {discount_pct})")

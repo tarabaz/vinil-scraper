@@ -129,6 +129,7 @@ def notify_new_listings(new_listings: list[dict], errors: list[str] | None = Non
                     item["currency"],
                     item["url"],
                     items,
+                    total_detected=enrichment["total_detected"],
                 )
                 is_deal = discount_pct is not None and discount_pct >= UNDER_VALUE_THRESHOLD_PCT
                 if is_deal:

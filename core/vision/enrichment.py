@@ -28,7 +28,7 @@ import re
 
 import requests
 
-from core.collectors.discogs import get_price_suggestions, search_by_catalog_number, search_release
+from core.collectors.discogs import get_price_suggestions, search_by_catalog_number, search_by_title, search_release
 from core.collectors.ebay import get_item_images
 from core.db import insert_vision_result
 from core.user_filters import matches_user_filter
@@ -164,7 +164,11 @@ def find_discogs_candidates(merged: dict, max_candidates: int = MAX_DISCOGS_CAND
     return []
 
 
-def _titles_plausibly_match(recognized_title: str | None, candidate_title: str | None) -> bool:
+TITLE_MATCH_THRESHOLD = 0.3  # con un altro segnale (catalogo, artista) ad ancorare il match
+TITLE_ONLY_MATCH_THRESHOLD = 0.6  # nessun altro segnale: la sola somiglianza del titolo deve bastare da sola
+
+
+def _titles_plausibly_match(recognized_title: str | None, candidate_title: str | None, threshold: float = TITLE_MATCH_THRESHOLD) -> bool:
     """Verifica di sanità: se abbiamo sia un titolo riconosciuto (da testo o
     vision) sia il titolo del candidato Discogs, controlla che si
     somiglino almeno un po'. Un codice catalogo (o un barcode letto per
@@ -173,14 +177,58 @@ def _titles_plausibly_match(recognized_title: str | None, candidate_title: str |
     if not recognized_title or not candidate_title:
         return True  # niente da confrontare, non possiamo scartare per sicurezza
     ratio = difflib.SequenceMatcher(None, recognized_title.lower(), candidate_title.lower()).ratio()
-    return ratio >= 0.3
+    return ratio >= threshold
+
+
+ARTIST_MATCH_THRESHOLD = 0.4
+
+
+def _split_candidate_title(candidate_title: str | None) -> tuple[str | None, str]:
+    """Il campo "title" di un risultato Discogs è quasi sempre nel formato
+    "Artista - Album": lo separa in (artista o None, solo album — l'intera
+    stringa se non c'è il separatore)."""
+    if not candidate_title:
+        return None, ""
+    parts = TITLE_SEPARATOR_PATTERN.split(candidate_title, maxsplit=1)
+    if len(parts) == 2:
+        return parts[0].strip(), parts[1].strip()
+    return None, candidate_title
+
+
+def _candidate_artist(candidate_title: str | None) -> str | None:
+    return _split_candidate_title(candidate_title)[0]
+
+
+def _candidate_plausibly_matches(record: dict, candidate: dict, title_threshold: float = TITLE_MATCH_THRESHOLD) -> bool:
+    """Verifica di sanità applicata a QUALSIASI candidato trovato, a
+    prescindere da come lo si è cercato (codice catalogo, barcode, artista,
+    solo titolo): un codice può abbinare per sbaglio la release di un disco
+    completamente diverso (o con lo stesso barcode riusato/refuso), quindi
+    ogni dato che la vision ha effettivamente letto va confrontato con
+    quello che dice Discogs, non solo il titolo. Confronta il titolo
+    riconosciuto solo con la parte album del candidato (non "Artista -
+    Album" per intero, altrimenti il prefisso artista abbassa la somiglianza
+    a prescindere da quanto l'album corrisponda)."""
+    candidate_artist, candidate_album = _split_candidate_title(candidate.get("title"))
+
+    if not _titles_plausibly_match(record.get("album_title"), candidate_album, threshold=title_threshold):
+        return False
+
+    recognized_artist = record.get("artist")
+    if recognized_artist and candidate_artist:
+        ratio = difflib.SequenceMatcher(None, recognized_artist.lower(), candidate_artist.lower()).ratio()
+        if ratio < ARTIST_MATCH_THRESHOLD:
+            return False
+
+    return True
 
 
 def _search_single_candidate(record: dict) -> dict | None:
     """Cerca UN disco (per identificarlo dentro il raggruppamento di un
-    lotto): preferisce il codice catalogo, altrimenti artista+titolo — ma a
-    differenza di find_discogs_candidates verifica che il titolo del
-    candidato somigli a quello riconosciuto, scartando abbinamenti
+    lotto): preferisce il codice catalogo, altrimenti artista+titolo, poi
+    solo titolo come ultima risorsa — ma a differenza di
+    find_discogs_candidates verifica che titolo E (se letto) artista del
+    candidato somiglino a quelli riconosciuti, scartando abbinamenti
     implausibili invece di accettare il primo risultato a occhi chiusi."""
     if record.get("catalog_number"):
         raw = record["catalog_number"]
@@ -191,7 +239,7 @@ def _search_single_candidate(record: dict) -> dict | None:
                 print(f"[ERRORE] ricerca Discogs per codice catalogo '{candidate_value}' fallita: {exc}")
                 continue
             for candidate in candidates:
-                if _titles_plausibly_match(record.get("album_title"), candidate.get("title")):
+                if _candidate_plausibly_matches(record, candidate):
                     return candidate
 
     if record.get("artist") and record.get("album_title"):
@@ -200,8 +248,8 @@ def _search_single_candidate(record: dict) -> dict | None:
         except Exception as exc:
             print(f"[ERRORE] ricerca Discogs per artista/titolo fallita: {exc}")
             release = None
-        if release and _titles_plausibly_match(record.get("album_title"), release.get("title")):
-            return {
+        if release:
+            candidate = {
                 "id": release["id"],
                 "title": release.get("title"),
                 "country": None,
@@ -209,28 +257,40 @@ def _search_single_candidate(record: dict) -> dict | None:
                 "label": None,
                 "catno": None,
             }
+            if _candidate_plausibly_matches(record, candidate):
+                return candidate
+
+    if record.get("album_title") and not record.get("artist"):
+        # Ultimo tentativo: titolo leggibile ma artista non riconosciuto
+        # (es. copertina con logo stilizzato). Nessun artista ad ancorare il
+        # match, quindi soglia di somiglianza più severa della ricerca con
+        # artista noto — un titolo generico può appartenere a più dischi.
+        try:
+            candidates = search_by_title(record["album_title"])
+        except Exception as exc:
+            print(f"[ERRORE] ricerca Discogs per solo titolo fallita: {exc}")
+            candidates = []
+        for candidate in candidates:
+            if _candidate_plausibly_matches(record, candidate, title_threshold=TITLE_ONLY_MATCH_THRESHOLD):
+                return candidate
 
     return None
 
 
-def _has_strong_signal(record: dict) -> bool:
-    """Codice catalogo o barcode: gli unici segnali abbastanza univoci da
-    fidarsi di un disco anche senza una corrispondenza Discogs trovata (es.
-    release non presente su Discogs, ma il codice letto è comunque un dato
-    reale). Un titolo/etichetta senza questi è troppo a rischio di essere
-    testo letto male dalla vision (es. una scritta promozionale sul retro
-    scambiata per il titolo dell'album) per fidarsene da solo."""
-    return bool(record.get("catalog_number") or record.get("barcode"))
-
-
-def build_items_from_records(photo_records: list[tuple[str, dict]]) -> list[dict]:
-    """Da una lista di (photo_id, record riconosciuto) produce una lista di
-    {"merged": {...}, "candidates": [...]} — un item per disco fisico
-    distinto. Cerca su Discogs OGNI record singolarmente (non dopo averli
-    uniti), poi usa core.vision.matching per raggruppare le rilevazioni che
-    sono lo stesso disco (stesso release_id, foto diverse) separandole da
-    dischi diversi (release_id diversi, anche nella stessa foto — es. più
-    copertine affiancate in un lotto)."""
+def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[list[dict], int]:
+    """Da una lista di (photo_id, record riconosciuto) produce (items, numero
+    totale di dischi distinti rilevati prima di scartare quelli deboli).
+    items è una lista di {"merged": {...}, "candidates": [...]} — un item
+    per disco fisico distinto ritenuto abbastanza affidabile da mostrare.
+    Cerca su Discogs OGNI record singolarmente (non dopo averli uniti), poi
+    usa core.vision.matching per raggruppare le rilevazioni che sono lo
+    stesso disco (stesso release_id, foto diverse) separandole da dischi
+    diversi (release_id diversi, anche nella stessa foto — es. più copertine
+    affiancate in un lotto). Un gruppo senza corrispondenza Discogs e senza
+    codice catalogo/barcode viene scartato (probabile testo letto male dalla
+    vision) ma resta conteggiato nel totale, cosi il chiamante può segnalare
+    quanti dischi visibili nelle foto non sono stati identificati con
+    sicurezza invece di sparire silenziosamente dal conteggio."""
     detections = []
     candidates_by_release: dict[int, dict] = {}
 
@@ -240,14 +300,6 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> list[dict
 
         candidate = _search_single_candidate(record)
         release_id = candidate["id"] if candidate else None
-
-        if release_id is None and not _has_strong_signal(record):
-            # Nessuna corrispondenza Discogs e nessun segnale forte (codice
-            # catalogo/barcode): probabilmente testo letto male dalla vision
-            # (es. una scritta promozionale scambiata per il titolo) — meglio
-            # scartarlo che mostrarlo come un disco fantasma in più nel lotto.
-            continue
-
         if candidate:
             candidates_by_release[release_id] = candidate
 
@@ -266,15 +318,26 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> list[dict
                     "barcode": bool(record.get("barcode")),
                     "artist_title_text": bool(record.get("artist") and record.get("album_title")),
                     "label_match": bool(record.get("label")),
+                    "discogs_match": bool(candidate),
                 },
             )
         )
 
     if not detections:
-        return []
+        return [], 0
+
+    grouped_items = group_detections(detections)
+    total_groups = len(grouped_items)
 
     items = []
-    for grouped in group_detections(detections):
+    for grouped in grouped_items:
+        if grouped.release_id is None and not (grouped.catno or grouped.barcode):
+            # Nessuna corrispondenza Discogs e nessun segnale forte (codice
+            # catalogo/barcode): probabilmente testo letto male dalla vision
+            # (es. una scritta promozionale scambiata per il titolo) — meglio
+            # scartarlo che mostrarlo come un disco fantasma in più nel lotto.
+            continue
+
         candidate = candidates_by_release.get(grouped.release_id)
         merged = {field: None for field in MERGE_FIELDS}
         merged["artist"] = grouped.artist
@@ -282,8 +345,22 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> list[dict
         merged["catalog_number"] = grouped.catno
         merged["barcode"] = grouped.barcode
         merged["label"] = grouped.label
-        items.append({"merged": merged, "candidates": [candidate] if candidate else []})
-    return items
+
+        if not merged["artist"] and candidate:
+            # Se la vision non ha letto l'artista ma il match è già
+            # confermato (es. trovato via solo titolo), lo recuperiamo da
+            # Discogs invece di lasciarlo vuoto.
+            merged["artist"] = _candidate_artist(candidate.get("title"))
+
+        items.append(
+            {
+                "merged": merged,
+                "candidates": [candidate] if candidate else [],
+                "confidence_score": grouped.confidence_score,
+                "confidence_level": grouped.confidence_level,
+            }
+        )
+    return items, total_groups
 
 
 def get_reference_prices(release_id: int) -> dict:
@@ -357,19 +434,25 @@ def enrich_listing(conn, source: str, external_id: str, title: str, image_url: s
     """Arricchisce un annuncio con dati riconosciuti e corrispondenze
     Discogs, al minor costo possibile (titolo -> cache -> vision). Ritorna
     {"items": [{"merged": {...}, "candidates": [...]}, ...],
-    "source_of_data": "title"|"cache"|"vision"|"none"} — un item per disco
-    fisico distinto identificato (uno per un disco singolo, più di uno per
-    un lotto con dischi diversi nelle foto)."""
+    "source_of_data": "title"|"cache"|"vision"|"none", "total_detected": int}
+    — un item per disco fisico distinto identificato (uno per un disco
+    singolo, più di uno per un lotto con dischi diversi nelle foto).
+    total_detected è il numero di dischi distinti rilevati nelle foto PRIMA
+    di scartare quelli senza dati abbastanza affidabili — se maggiore di
+    len(items), vuol dire che in foto se ne vedevano di più di quelli
+    effettivamente identificati."""
     hints = parse_title_hints(title)
     if hints.get("artist") and hints.get("album_title"):
         merged = {field: None for field in MERGE_FIELDS}
         merged.update(hints)
-        return {"items": [{"merged": merged, "candidates": find_discogs_candidates(merged)}], "source_of_data": "title"}
+        items = [{"merged": merged, "candidates": find_discogs_candidates(merged)}]
+        return {"items": items, "source_of_data": "title", "total_detected": len(items)}
 
     cached = get_cached_vision_results(conn, source, external_id)
     if cached:
         photo_records = [(row.get("image_url") or f"cache-{i}", row) for i, row in enumerate(cached)]
-        return {"items": build_items_from_records(photo_records), "source_of_data": "cache"}
+        items, total_detected = build_items_from_records(photo_records)
+        return {"items": items, "source_of_data": "cache", "total_detected": total_detected}
 
     images = get_all_images(source, external_id, image_url, max_images)
     photo_records = []
@@ -405,10 +488,13 @@ def enrich_listing(conn, source: str, external_id: str, title: str, image_url: s
             )
             photo_records.append((img_url, record))
 
-    return {"items": build_items_from_records(photo_records), "source_of_data": "vision"}
+    items, total_detected = build_items_from_records(photo_records)
+    return {"items": items, "source_of_data": "vision", "total_detected": total_detected}
 
 
-def build_enrichment_message(source: str, title: str, price, currency, url: str | None, items: list[dict]) -> tuple[str, int | None]:
+def build_enrichment_message(
+    source: str, title: str, price, currency, url: str | None, items: list[dict], total_detected: int | None = None
+) -> tuple[str, int | None]:
     """Messaggio Telegram UNICO per l'intero annuncio, anche se contiene più
     dischi diversi (lotto) — ognuno in una propria sotto-sezione numerata
     "Disco N" quando ce n'è più di uno. Lo sconto è calcolato sul totale:
@@ -440,6 +526,11 @@ def build_enrichment_message(source: str, title: str, price, currency, url: str 
                 recognized_lines.append(f"{FIELD_LABELS[f]}: {html.escape(merged[f])}")
         lines.append("\n".join(recognized_lines) if recognized_lines else "Nessun dato riconosciuto")
 
+        confidence_level = item.get("confidence_level")
+        if confidence_level and recognized_lines:
+            confidence_pct = round((item.get("confidence_score") or 0) * 100)
+            lines.append(f"🔍 Affidabilità: {confidence_level} ({confidence_pct}%)")
+
         if candidates:
             candidate_texts = []
             for i, candidate in enumerate(candidates, start=1):
@@ -456,6 +547,11 @@ def build_enrichment_message(source: str, title: str, price, currency, url: str 
 
     discount_pct = compute_discount_pct(price, currency, total_good_price if any_good_price else None)
     discount_line = build_discount_line(discount_pct)
+    if discount_line and total_detected and total_detected > len(items):
+        # Lo sconto è calcolato solo sui dischi identificati: se nelle foto
+        # se ne vedevano di più, il confronto col prezzo dell'intero lotto
+        # non è equo e va segnalato, non lasciato implicito.
+        discount_line += f" (su {len(items)} di {total_detected} dischi rilevati)"
 
     sections = []
 
@@ -523,7 +619,7 @@ def generate_digest(conn, limit: int, chat_id: int | None = None, require_discou
             if not cached:
                 continue
             photo_records = [(row.get("image_url") or f"cache-{i}", row) for i, row in enumerate(cached)]
-            items = build_items_from_records(photo_records)
+            items, _ = build_items_from_records(photo_records)
 
         for item in items:
             if not item["candidates"]:

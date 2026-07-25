@@ -23,6 +23,7 @@ SIGNAL_WEIGHTS = {
     "label_match": 0.1,
     "year_match": 0.05,
     "clip_similarity": 0.15,
+    "discogs_match": 0.2,  # una corrispondenza Discogs plausibile è di per sé una conferma
 }
 
 CONFIDENCE_HIGH = 0.5

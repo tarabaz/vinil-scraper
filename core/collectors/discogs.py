@@ -52,6 +52,34 @@ def search_release(artist: str, title: str) -> dict | None:
     return results[0] if results else None
 
 
+def search_by_title(title: str) -> list[dict]:
+    """Cerca release solo per titolo, senza artista — usata come ultimo
+    tentativo quando la vision legge il titolo ma non l'artista (es. logo
+    stilizzato non riconosciuto). Più a rischio di falsi positivi di
+    search_release (titoli comuni possono appartenere a più artisti): chi
+    chiama deve verificare la somiglianza del titolo restituito in modo più
+    severo di una ricerca con artista noto."""
+    response = requests.get(
+        f"{BASE_URL}/database/search",
+        headers=_headers(),
+        params={"release_title": title, "type": "release", "format": "Vinyl"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    results = response.json().get("results", [])
+    return [
+        {
+            "id": r["id"],
+            "title": r.get("title"),
+            "country": r.get("country"),
+            "year": r.get("year"),
+            "label": r.get("label"),
+            "catno": r.get("catno"),
+        }
+        for r in results
+    ]
+
+
 def search_by_catalog_number(
     catno: str, country: str | None = None, year: str | None = None
 ) -> list[dict]:

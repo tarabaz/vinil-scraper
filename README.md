@@ -558,3 +558,33 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   un abbinamento). Rinforzato anche il prompt per scoraggiare esplicitamente
   questo formato e per dire di lasciare l'artista `null` piuttosto che
   abbinarlo a caso a un album quando non è chiaro quale sia quale.
+- **2026-07-25** — Verifica incrociata con Discogs estesa a QUALSIASI dato
+  letto dalla vision, non solo al titolo: prima un match trovato per codice
+  catalogo o barcode veniva accettato controllando solo che il titolo si
+  somigliasse; ora, se la vision ha letto anche un artista, viene
+  confrontato anche quello con l'artista del candidato Discogs (estratto dal
+  campo "title", quasi sempre nel formato "Artista - Album") — un codice
+  catalogo/barcode riusato o refuso che punterebbe a un artista
+  completamente diverso viene scartato. Corretto anche un bug introdotto
+  nello stesso lavoro: il confronto di somiglianza del titolo usava l'intero
+  "Artista - Album" del candidato invece di solo la parte album, penalizzando
+  ingiustamente titoli corretti (il prefisso artista abbassa il punteggio di
+  somiglianza a prescindere da quanto l'album corrisponda).
+  - Nuova `core.collectors.discogs.search_by_title()`: ultimo tentativo di
+    ricerca quando la vision legge il titolo ma non l'artista (es. copertina
+    con logo stilizzato), con soglia di somiglianza più severa (0.6 invece
+    di 0.3) visto che manca l'artista come ancora. Se il match viene
+    confermato, l'artista mancante viene recuperato da Discogs stesso invece
+    di restare vuoto.
+  - Aggiunto un indicatore di **affidabilità** (alta/media/bassa + %) per
+    ogni disco identificato nel messaggio Telegram, usando il sistema di
+    punteggio già pronto in `core/vision/matching.py` (mai collegato prima
+    d'ora) — un nuovo segnale "discogs_match" pesa il fatto stesso che un
+    candidato Discogs plausibile sia stato trovato, non solo cosa la vision
+    ha letto.
+  - `build_items_from_records()` ora ritorna anche il numero totale di
+    dischi distinti rilevati nelle foto (prima di scartare quelli senza dati
+    abbastanza affidabili): se un lotto mostra più dischi di quelli
+    identificati, il messaggio lo segnala esplicitamente ("su 2 di 4 dischi
+    rilevati") invece di far sembrare lo sconto calcolato sull'intero lotto
+    quando in realtà copre solo una parte.
