@@ -36,6 +36,7 @@ class Detection:
 
     photo_id: str
     release_id: int | None = None
+    artist: str | None = None
     title: str | None = None
     catno: str | None = None
     barcode: str | None = None
@@ -50,6 +51,7 @@ class Item:
     rilevazioni che si ritiene siano lo stesso oggetto."""
 
     release_id: int | None
+    artist: str | None
     title: str | None
     catno: str | None
     barcode: str | None
@@ -85,11 +87,12 @@ def _merge_field(current: str | None, new: str | None) -> str | None:
 
 
 def _merge_detections(detections: list[Detection]) -> Item:
-    title = catno = barcode = country = label = None
+    artist = title = catno = barcode = country = label = None
     photo_ids = []
     merged_signals: dict[str, bool | float] = {}
 
     for d in detections:
+        artist = _merge_field(artist, d.artist)
         title = _merge_field(title, d.title)
         catno = _merge_field(catno, d.catno)
         barcode = _merge_field(barcode, d.barcode)
@@ -102,6 +105,7 @@ def _merge_detections(detections: list[Detection]) -> Item:
 
     return Item(
         release_id=detections[0].release_id,
+        artist=artist,
         title=title,
         catno=catno,
         barcode=barcode,

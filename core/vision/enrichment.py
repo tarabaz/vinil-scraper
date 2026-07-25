@@ -22,6 +22,7 @@ Ordine di costo crescente per arrivare ai dati, si ferma al primo che basta:
   3. Vision sulle foto (costoso: rete + GPU) — solo se le prime due non
      bastano."""
 
+import difflib
 import html
 import re
 
@@ -163,12 +164,53 @@ def find_discogs_candidates(merged: dict, max_candidates: int = MAX_DISCOGS_CAND
     return []
 
 
+def _titles_plausibly_match(recognized_title: str | None, candidate_title: str | None) -> bool:
+    """Verifica di sanità: se abbiamo sia un titolo riconosciuto (da testo o
+    vision) sia il titolo del candidato Discogs, controlla che si
+    somiglino almeno un po'. Un codice catalogo (o un barcode letto per
+    sbaglio come catalogo) può abbinare la release di un disco del tutto
+    diverso — senza questo controllo verrebbe accettata comunque."""
+    if not recognized_title or not candidate_title:
+        return True  # niente da confrontare, non possiamo scartare per sicurezza
+    ratio = difflib.SequenceMatcher(None, recognized_title.lower(), candidate_title.lower()).ratio()
+    return ratio >= 0.3
+
+
 def _search_single_candidate(record: dict) -> dict | None:
-    """Come find_discogs_candidates ma ritorna solo il primo/migliore
-    candidato — usata per identificare OGNI disco di un lotto singolarmente
-    (una ricerca per record riconosciuto, non una sola sui dati uniti)."""
-    candidates = find_discogs_candidates(record, max_candidates=1)
-    return candidates[0] if candidates else None
+    """Cerca UN disco (per identificarlo dentro il raggruppamento di un
+    lotto): preferisce il codice catalogo, altrimenti artista+titolo — ma a
+    differenza di find_discogs_candidates verifica che il titolo del
+    candidato somigli a quello riconosciuto, scartando abbinamenti
+    implausibili invece di accettare il primo risultato a occhi chiusi."""
+    if record.get("catalog_number"):
+        raw = record["catalog_number"]
+        for candidate_value in dict.fromkeys([clean_catalog_number(raw), raw]):
+            try:
+                candidates = search_by_catalog_number(candidate_value)
+            except Exception as exc:
+                print(f"[ERRORE] ricerca Discogs per codice catalogo '{candidate_value}' fallita: {exc}")
+                continue
+            for candidate in candidates:
+                if _titles_plausibly_match(record.get("album_title"), candidate.get("title")):
+                    return candidate
+
+    if record.get("artist") and record.get("album_title"):
+        try:
+            release = search_release(record["artist"], record["album_title"])
+        except Exception as exc:
+            print(f"[ERRORE] ricerca Discogs per artista/titolo fallita: {exc}")
+            release = None
+        if release:
+            return {
+                "id": release["id"],
+                "title": release.get("title"),
+                "country": None,
+                "year": None,
+                "label": None,
+                "catno": None,
+            }
+
+    return None
 
 
 def build_items_from_records(photo_records: list[tuple[str, dict]]) -> list[dict]:
@@ -195,6 +237,7 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> list[dict
             Detection(
                 photo_id=photo_id,
                 release_id=release_id,
+                artist=record.get("artist"),
                 title=record.get("album_title"),
                 catno=record.get("catalog_number"),
                 barcode=record.get("barcode"),
@@ -216,6 +259,7 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> list[dict
     for grouped in group_detections(detections):
         candidate = candidates_by_release.get(grouped.release_id)
         merged = {field: None for field in MERGE_FIELDS}
+        merged["artist"] = grouped.artist
         merged["album_title"] = grouped.title
         merged["catalog_number"] = grouped.catno
         merged["barcode"] = grouped.barcode

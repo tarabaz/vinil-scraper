@@ -513,3 +513,12 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
     lotto.
   - `/report` e `/report_miei` generano una riga per **disco** identificato,
     non più una per annuncio (un lotto con 3 dischi validi genera 3 righe).
+- **2026-07-24** — Due fix trovati testando un lotto vero (Iron Maiden, 5
+  foto): (1) l'artista spariva dal messaggio dopo la fusione multi-foto —
+  `core/vision/matching.py` non portava dietro quel campo, aggiunto a
+  `Detection`/`Item`; (2) un codice catalogo (in realtà un barcode letto
+  come tale) ha abbinato per sbaglio la release di un disco completamente
+  diverso (~~Rock In Rio~~ invece di The Number of the Beast) — ora
+  `_search_single_candidate` verifica che il titolo del candidato Discogs
+  somigli almeno un po' a quello riconosciuto prima di accettarlo,
+  scartando abbinamenti implausibili invece di mostrarli come corretti.
