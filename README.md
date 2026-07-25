@@ -535,3 +535,26 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   `_search_single_candidate`, che prima accettava il primo risultato
   Discogs senza verificarne la somiglianza col titolo riconosciuto (solo
   la ricerca per codice catalogo aveva già questo controllo).
+- **2026-07-25** — Aggiunto log di debug (`[DEBUG] nessun dato riconosciuto
+  in ... — risposta grezza del modello: ...`) quando una foto non produce
+  nessun campo utile, per capire cosa risponde davvero il modello invece di
+  restare al buio.
+- **2026-07-25** — Bug reale trovato con questo log su un lotto vero (4
+  copertine affiancate in una foto, 4 retri affiancati nella foto
+  successiva — De Gregori/Pino Daniele/Venditti): il modello aveva
+  correttamente letto quasi tutti i dati (2 artisti, 4 titoli album, un
+  codice catalogo, un barcode) ma li aveva impacchettati in un formato
+  diverso da quello richiesto — un solo oggetto JSON con ogni campo come
+  **lista di valori** (uno per disco, "a colonne") invece dell'array di
+  oggetti separati chiesto dal prompt. Il parser accettava solo il formato
+  "un oggetto per disco" e scartava questo in blocco (nessun campo
+  risultava una stringa), dando "nessun dato riconosciuto" nonostante il
+  modello avesse letto quasi tutto — non un limite della vision, un buco
+  nel parsing. Aggiunta `_entries_from_columnar()` in
+  `core/vision/ollama_vision.py` che riconosce questa forma e la
+  "trasforma" in una lista di oggetti per disco (allineando i campi per
+  indice; campi con liste di lunghezza diversa tra loro, es. meno artisti
+  che album, lasciano `null` oltre la lunghezza letta invece di indovinare
+  un abbinamento). Rinforzato anche il prompt per scoraggiare esplicitamente
+  questo formato e per dire di lasciare l'artista `null` piuttosto che
+  abbinarlo a caso a un album quando non è chiaro quale sia quale.

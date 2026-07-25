@@ -31,6 +31,12 @@ PROMPT = (
     "nessuno, un array vuoto []). Ogni oggetto deve avere esattamente questi campi: "
     '"artist", "album_title", "label", "catalog_number", "barcode", "other_text". '
     "Usa null per un campo se non è visibile — non inventare mai nulla. "
+    "FORMATO OBBLIGATORIO: un oggetto separato per ogni disco, MAI un oggetto solo con "
+    "liste come valori dei campi (es. mai \"album_title\": [\"X\", \"Y\"] — è sbagliato, "
+    "servono due oggetti distinti uno con album_title \"X\" e uno con album_title \"Y\"). "
+    "Se vedi più copertine ma non sei sicuro di quale artista corrisponda a quale album, "
+    "lascia \"artist\" a null per quell'oggetto invece di abbinarlo a caso: un dato mancante "
+    "va bene, un abbinamento sbagliato no. "
     '"catalog_number" e "barcode" sono DUE campi separati e vanno tenuti distinti: '
     "non scrivere mai il barcode dentro catalog_number o viceversa, e non unirli con "
     "due punti o altri separatori nello stesso valore. "
@@ -54,6 +60,36 @@ def _parse_entry(entry, raw: str) -> dict:
         if isinstance(value, str) and value.strip().lower() not in ("", "null", "none", "n/a"):
             result[field] = value.strip()
     return result
+
+
+def _entries_from_columnar(parsed: dict) -> list[dict] | None:
+    """Su foto con più copertine affiancate il modello a volte risponde con
+    UN oggetto solo dove ogni campo è una LISTA di valori (uno per disco,
+    "a colonne") invece dell'array di oggetti richiesto dal prompt — es.
+    {"artist": ["A", "B"], "album_title": ["X", "Y", "Z"], ...}. Se non
+    gestito, questa forma viene scartata per intero (nessun campo è una
+    stringa) anche quando contiene dati letti correttamente. Qui la
+    "trasponiamo" in una lista di oggetti per disco, allineando per indice;
+    liste di lunghezza diversa tra campi (mapping incompleto, es. meno
+    artisti che album) lasciano None oltre la loro lunghezza invece di
+    indovinare un abbinamento. Ritorna None se il dict non è in questa
+    forma (nessun campo è una lista)."""
+    list_fields = {f: parsed[f] for f in FIELDS if isinstance(parsed.get(f), list)}
+    if not list_fields:
+        return None
+
+    count = max(len(v) for v in list_fields.values())
+    entries = []
+    for i in range(count):
+        entry = {}
+        for f in FIELDS:
+            value = parsed.get(f)
+            if isinstance(value, list):
+                entry[f] = value[i] if i < len(value) else None
+            else:
+                entry[f] = value
+        entries.append(entry)
+    return entries
 
 
 def recognize_image(image_bytes: bytes, prompt: str = PROMPT) -> list[dict]:
@@ -85,7 +121,11 @@ def recognize_image(image_bytes: bytes, prompt: str = PROMPT) -> list[dict]:
         return [_empty_result(raw)]
 
     if isinstance(parsed, dict):
-        parsed = [parsed]  # il modello a volte risponde con un oggetto solo anche se l'array ha un elemento
+        columnar = _entries_from_columnar(parsed)
+        # il modello a volte risponde con un oggetto solo: o un singolo
+        # disco (nessun campo è una lista), o più dischi "a colonne" (ogni
+        # campo è una lista) — vedi _entries_from_columnar
+        parsed = columnar if columnar is not None else [parsed]
     if not isinstance(parsed, list):
         return [_empty_result(raw)]
 
