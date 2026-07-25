@@ -624,3 +624,23 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   richiederebbe leggere la pagina web della release invece dell'API,
   valutato ma non implementato per ora (più fragile, si romperebbe a ogni
   cambio di layout del sito).
+- **2026-07-25** — Test reale sul lotto De Gregori/Pino Daniele/Venditti con
+  tutti i fix precedenti: tutti e 4 i dischi identificati correttamente con
+  prezzi reali di mercato, il quinto scartato giustamente come fantasma.
+  Trovati e sistemati due bug residui:
+  - L'artista mostrato restava quello letto (grezzo, a volte con refusi
+    tipo "Bino Daniele" invece di "Pino Daniele") anche quando Discogs
+    aveva già confermato il match — il backfill scattava solo se il campo
+    era vuoto. Ora, quando c'è un match confermato, artista e titolo
+    mostrati sono sempre quelli di Discogs (canonici, corretti) invece
+    della lettura OCR grezza, che resta solo come ripiego se il candidato
+    non li fornisce.
+  - Il campo "label" di Discogs è a volte una lista (più etichette
+    coinvolte in una release, a volte con doppioni) invece di una stringa
+    — veniva stampata col repr Python grezzo (es.
+    `['Sony Music', 'Sony Music', ...]`). Ora formattata come elenco
+    leggibile separato da virgole, senza doppioni.
+  - Pulizia log: candidati con lo stesso titolo (edizioni/formati diversi
+    della stessa release) venivano controllati e loggati uno per uno anche
+    se il risultato è identico per tutti (dipende solo dal testo) — ora
+    controllato una volta sola per titolo.

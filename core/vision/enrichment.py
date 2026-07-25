@@ -254,7 +254,16 @@ def _search_single_candidate(record: dict) -> dict | None:
                 print(f"[ERRORE] ricerca Discogs per codice catalogo '{candidate_value}' fallita: {exc}")
                 continue
             _trace(f"{len(candidates)} candidati trovati per codice catalogo")
+            seen_titles = set()
             for candidate in candidates:
+                # Stesso titolo ripetuto tra più candidati (es. edizioni/
+                # formati diversi della stessa release): il controllo di
+                # plausibilità dipende solo dal testo, ripeterlo è inutile
+                # e allunga il log senza motivo — controlla ogni titolo una
+                # volta sola.
+                if candidate.get("title") in seen_titles:
+                    continue
+                seen_titles.add(candidate.get("title"))
                 if _candidate_plausibly_matches(record, candidate):
                     return candidate
 
@@ -299,7 +308,11 @@ def _search_single_candidate(record: dict) -> dict | None:
             print(f"[ERRORE] ricerca Discogs per solo titolo fallita: {exc}")
             candidates = []
         _trace(f"{len(candidates)} candidati trovati per solo titolo")
+        seen_titles = set()
         for candidate in candidates:
+            if candidate.get("title") in seen_titles:
+                continue
+            seen_titles.add(candidate.get("title"))
             if _candidate_plausibly_matches(record, candidate, title_threshold=threshold):
                 return candidate
 
@@ -376,17 +389,22 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[lis
 
         candidate = candidates_by_release.get(grouped.release_id)
         merged = {field: None for field in MERGE_FIELDS}
-        merged["artist"] = grouped.artist
-        merged["album_title"] = grouped.title
         merged["catalog_number"] = grouped.catno
         merged["barcode"] = grouped.barcode
         merged["label"] = grouped.label
 
-        if not merged["artist"] and candidate:
-            # Se la vision non ha letto l'artista ma il match è già
-            # confermato (es. trovato via solo titolo), lo recuperiamo da
-            # Discogs invece di lasciarlo vuoto.
-            merged["artist"] = _candidate_artist(candidate.get("title"))
+        if candidate:
+            # Un match già confermato plausibile è più affidabile della
+            # lettura OCR grezza (che può avere refusi, es. "Bino" invece di
+            # "Pino") — preferisci artista/titolo di Discogs quando
+            # disponibili, tenendo quelli letti dalla vision solo come
+            # ripiego (es. candidato senza il separatore "Artista - Album").
+            candidate_artist, candidate_album = _split_candidate_title(candidate.get("title"))
+            merged["artist"] = candidate_artist or grouped.artist
+            merged["album_title"] = candidate_album or grouped.title
+        else:
+            merged["artist"] = grouped.artist
+            merged["album_title"] = grouped.title
 
         items.append(
             {
@@ -433,8 +451,17 @@ def format_discogs_candidate(candidate: dict, index: int) -> tuple[str, dict]:
     affidabile della stima "Good" per release poco scambiate o mai vendute
     su Discogs, dove la stima algoritmica può essere molto lontana dal
     prezzo reale a cui la gente la vende oggi."""
+    def _format_value(v):
+        # Discogs a volte restituisce "label" come lista (più etichette
+        # coinvolte in una release, a volte con doppioni) invece di una
+        # stringa singola — senza questo finirebbe stampata come repr
+        # Python grezzo (es. "['Sony Music', 'Sony Music', ...]").
+        if isinstance(v, list):
+            return ", ".join(dict.fromkeys(str(x) for x in v))
+        return str(v)
+
     details = " | ".join(
-        html.escape(str(v))
+        html.escape(_format_value(v))
         for v in (candidate.get("country"), candidate.get("year"), candidate.get("label"), candidate.get("catno"))
         if v
     )

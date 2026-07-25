@@ -60,7 +60,8 @@ def main() -> None:
     print(f"Fonte dati: {enrichment['source_of_data']}")
     print(f"Dischi identificati: {len(items)} (rilevati nelle foto: {enrichment['total_detected']})")
     for i, it in enumerate(items, start=1):
-        print(f"  Disco {i}: {it['merged']} — {len(it['candidates'])} candidati Discogs, affidabilità: {it.get('confidence_level')} ({it.get('confidence_score')})")
+        confidence_pct = round((it.get("confidence_score") or 0) * 100)
+        print(f"  Disco {i}: {it['merged']} — {len(it['candidates'])} candidati Discogs, affidabilità: {it.get('confidence_level')} ({confidence_pct}%)")
 
     message, discount_pct = build_enrichment_message(
         item["source"], item["title"], item["price"], item["currency"], item["url"], items, total_detected=enrichment["total_detected"]
