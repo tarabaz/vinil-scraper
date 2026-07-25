@@ -381,6 +381,14 @@ def enrich_listing(conn, source: str, external_id: str, title: str, image_url: s
             print(f"[ERRORE] riconoscimento immagine fallito ({img_url}): {exc}")
             continue
 
+        if not any(any(record.get(f) for f in MERGE_FIELDS) for record in records):
+            # Nessun campo utile in nessun record per questa foto: stampo la
+            # risposta grezza del modello per capire se ha risposto "niente
+            # di leggibile" a ragion veduta o se ha semplicemente ignorato il
+            # formato richiesto — altrimenti da qui non lo sapremmo mai.
+            raw_preview = (records[0].get("raw_response") or "")[:500]
+            print(f"[DEBUG] nessun dato riconosciuto in {img_url} — risposta grezza del modello: {raw_preview!r}")
+
         for record in records:
             insert_vision_result(
                 conn,
