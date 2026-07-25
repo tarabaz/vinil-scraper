@@ -607,3 +607,20 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   o artista non plausibili), quali dischi vengono tenuti o scartati come
   fantasma dopo il raggruppamento — prima si vedeva solo il risultato
   finale, bisognava indovinare il perché di un mancato riconoscimento.
+- **2026-07-25** — Aggiunto il prezzo REALE di mercato accanto alla stima
+  Discogs: `price_suggestions` è una stima algoritmica basata sullo storico
+  delle vendite passate, inaffidabile per release poco scambiate o mai
+  vendute (caso reale trovato: "L'Orso Bruno" di Antonello Venditti,
+  stima Good €6, ma mai venduta su Discogs e in vendita oggi realmente da
+  €30 a €200). Nuova `core.collectors.discogs.get_marketplace_stats()`
+  (`/marketplace/stats/{release_id}`) che dà il prezzo più basso TRA le
+  copie realmente in vendita ora, mostrato nel messaggio come "In vendita
+  ora: da €X (N copie)" accanto alla stima Poor/Good/Very Good. Lo sconto
+  ora usa questo prezzo reale come riferimento quando disponibile (più
+  copie in vendita = dato più solido), la stima "Good" resta come ripiego
+  solo se nessuno la sta vendendo in questo momento. L'API pubblica di
+  Discogs non espone l'elenco completo dei singoli annunci per calcolarne
+  una media (solo il prezzo più basso e il conteggio) — un'eventuale media
+  richiederebbe leggere la pagina web della release invece dell'API,
+  valutato ma non implementato per ora (più fragile, si romperebbe a ogni
+  cambio di layout del sito).

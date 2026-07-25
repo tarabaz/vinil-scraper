@@ -28,7 +28,7 @@ import re
 
 import requests
 
-from core.collectors.discogs import get_price_suggestions, search_by_catalog_number, search_by_title, search_release
+from core.collectors.discogs import get_marketplace_stats, get_price_suggestions, search_by_catalog_number, search_by_title, search_release
 from core.collectors.ebay import get_item_images
 from core.db import insert_vision_result
 from core.user_filters import matches_user_filter
@@ -412,8 +412,27 @@ def get_reference_prices(release_id: int) -> dict:
     return {condition: round(prices[condition]["value"]) for condition in REFERENCE_CONDITIONS if condition in prices}
 
 
+def get_market_reference(release_id: int) -> dict:
+    """Prezzo più basso TRA le copie realmente in vendita ora per questa
+    release (non una stima). Dict vuoto se non disponibile (nessuna copia
+    in vendita, o errore Discogs — non blocca il resto del messaggio)."""
+    try:
+        stats = get_marketplace_stats(release_id)
+    except Exception as exc:
+        print(f"[ERRORE] statistiche di mercato Discogs fallite per release {release_id}: {exc}")
+        return {}
+    if not stats.get("lowest_price"):
+        return {}
+    return stats
+
+
 def format_discogs_candidate(candidate: dict, index: int) -> tuple[str, dict]:
-    """Ritorna (blocco di testo formattato del candidato, prezzi di riferimento arrotondati)."""
+    """Ritorna (blocco di testo formattato del candidato, prezzi di riferimento arrotondati).
+    Il dict di riferimento include anche "market_lowest" (prezzo più basso
+    tra le copie realmente in vendita ora, se disponibile e in EUR) — più
+    affidabile della stima "Good" per release poco scambiate o mai vendute
+    su Discogs, dove la stima algoritmica può essere molto lontana dal
+    prezzo reale a cui la gente la vende oggi."""
     details = " | ".join(
         html.escape(str(v))
         for v in (candidate.get("country"), candidate.get("year"), candidate.get("label"), candidate.get("catno"))
@@ -440,6 +459,15 @@ def format_discogs_candidate(candidate: dict, index: int) -> tuple[str, dict]:
         block.append(f"   {price_line}")
     else:
         block.append("   Nessun prezzo suggerito su Discogs")
+
+    market = get_market_reference(candidate["id"])
+    if market:
+        num_for_sale = market.get("num_for_sale")
+        copies_text = f" ({num_for_sale} copie)" if num_for_sale else ""
+        block.append(f"   In vendita ora: da {round(market['lowest_price'])} {market.get('currency', '')}{copies_text}")
+        if (market.get("currency") or "").upper() == "EUR":
+            reference_prices["market_lowest"] = round(market["lowest_price"])
+
     block.append(link_line)
     return "\n".join(block), reference_prices
 
@@ -457,13 +485,17 @@ def compute_discount_pct(listing_price, listing_currency: str | None, reference_
 
 
 def build_discount_line(discount_pct: int | None) -> str:
+    # Il riferimento può essere il prezzo di mercato reale (preferito) o,
+    # in mancanza di copie in vendita, la stima "Good" — vedi
+    # build_enrichment_message. Testo volutamente generico ("Discogs") per
+    # non promettere "Good" quando in realtà si sta usando l'altro.
     if discount_pct is None:
         return ""
     if discount_pct > 0:
-        return f"🔻 -{discount_pct}% rispetto a Discogs (Good)"
+        return f"🔻 -{discount_pct}% rispetto a Discogs"
     if discount_pct < 0:
-        return f"🔺 +{abs(discount_pct)}% rispetto a Discogs (Good)"
-    return "➖ Prezzo in linea con Discogs (Good)"
+        return f"🔺 +{abs(discount_pct)}% rispetto a Discogs"
+    return "➖ Prezzo in linea con Discogs"
 
 
 def enrich_listing(conn, source: str, external_id: str, title: str, image_url: str | None, max_images: int = 5) -> dict:
@@ -534,15 +566,17 @@ def build_enrichment_message(
     """Messaggio Telegram UNICO per l'intero annuncio, anche se contiene più
     dischi diversi (lotto) — ognuno in una propria sotto-sezione numerata
     "Disco N" quando ce n'è più di uno. Lo sconto è calcolato sul totale:
-    somma dei prezzi Discogs (Good) di tutti i dischi identificati,
-    confrontata col prezzo dell'intero annuncio — mai un disco singolo
+    somma, per ogni disco identificato, del prezzo più basso tra le copie
+    REALMENTE in vendita ora su Discogs (più affidabile) o, se non
+    disponibile (nessuna copia in vendita), della stima "Good" —
+    confrontata col prezzo dell'intero annuncio, mai un disco singolo
     contro il prezzo di tutto il lotto. Ritorna anche (oltre al testo) la %
     di sconto come numero, per poterla usare altrove (es. contarla in un
     report) senza doverla riparsare dal testo."""
     multi = len(items) > 1
     item_blocks = []
-    total_good_price = 0
-    any_good_price = False
+    total_reference_price = 0
+    any_reference_price = False
 
     for idx, item in enumerate(items, start=1):
         merged = item["merged"]
@@ -572,16 +606,22 @@ def build_enrichment_message(
             for i, candidate in enumerate(candidates, start=1):
                 text, reference_prices = format_discogs_candidate(candidate, i)
                 candidate_texts.append(text)
-                if i == 1 and reference_prices.get(DEAL_CONDITION):
-                    total_good_price += reference_prices[DEAL_CONDITION]
-                    any_good_price = True
+                if i == 1:
+                    # Preferisci il prezzo reale di mercato (copie
+                    # effettivamente in vendita ora) alla stima "Good": per
+                    # release poco scambiate o mai vendute la stima
+                    # algoritmica può essere molto lontana dalla realtà.
+                    deal_price = reference_prices.get("market_lowest") or reference_prices.get(DEAL_CONDITION)
+                    if deal_price:
+                        total_reference_price += deal_price
+                        any_reference_price = True
             lines.append("💿 Discogs:\n" + "\n\n".join(candidate_texts))
         else:
             lines.append("💿 Nessuna corrispondenza trovata su Discogs.")
 
         item_blocks.append("\n".join(lines))
 
-    discount_pct = compute_discount_pct(price, currency, total_good_price if any_good_price else None)
+    discount_pct = compute_discount_pct(price, currency, total_reference_price if any_reference_price else None)
     discount_line = build_discount_line(discount_pct)
     if discount_line and total_detected and total_detected > len(items):
         # Lo sconto è calcolato solo sui dischi identificati: se nelle foto

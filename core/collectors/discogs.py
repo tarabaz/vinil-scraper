@@ -128,6 +128,28 @@ def get_price_suggestions(release_id: int) -> dict:
     return response.json()
 
 
+def get_marketplace_stats(release_id: int) -> dict:
+    """Statistiche reali del mercato per una release: prezzo più basso TRA
+    le copie attualmente in vendita da altri utenti e quante ce ne sono.
+    Diverso da price_suggestions (una stima algoritmica basata sullo
+    storico delle vendite passate): per una release poco scambiata o mai
+    venduta, la stima può essere molto più bassa del prezzo reale a cui la
+    gente la vende oggi — questi numeri servono a controllare quella
+    stima invece di fidarsene ciecamente. Dict vuoto se non disponibile
+    (nessuna copia attualmente in vendita)."""
+    response = requests.get(
+        f"{BASE_URL}/marketplace/stats/{release_id}",
+        headers=_headers(),
+        timeout=10,
+    )
+    response.raise_for_status()
+    data = response.json()
+    lowest = data.get("lowest_price")
+    if not lowest:
+        return {}
+    return {"lowest_price": lowest.get("value"), "currency": lowest.get("currency"), "num_for_sale": data.get("num_for_sale")}
+
+
 def price_range(price_suggestions: dict) -> tuple[dict | None, dict | None]:
     """Ritorna (prezzo condizione peggiore, prezzo condizione migliore) tra quelle disponibili."""
     available = [c for c in CONDITION_ORDER if c in price_suggestions]
