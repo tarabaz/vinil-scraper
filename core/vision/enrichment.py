@@ -304,7 +304,7 @@ def _search_single_candidate(record: dict) -> dict | None:
         else:
             _trace("nessun risultato per artista+titolo esatto")
 
-    if record.get("album_title"):
+    if record.get("album_title") and not (len(record["album_title"].split()) < 2 and not record.get("artist")):
         # Rete di sicurezza ad ampio raggio: scatta ogni volta che le
         # ricerche più mirate sopra non hanno trovato nulla, non solo
         # quando manca l'artista — capita anche quando l'artista letto non
@@ -315,7 +315,12 @@ def _search_single_candidate(record: dict) -> dict | None:
         # sicurezza (soglia normale sul titolo); se non lo abbiamo, soglia
         # più severa sul titolo per compensare la mancanza di un secondo
         # segnale di conferma — un titolo generico può appartenere a più
-        # dischi diversi.
+        # dischi diversi. Esclusa del tutto quando il titolo è una sola
+        # parola E non c'è nemmeno un artista da incrociare (es. "Queen"
+        # letto da un logo/scritta sulla copertina, non necessariamente
+        # il titolo di un album a sé): troppo generico per fidarsene senza
+        # nessun secondo segnale, rischia di abbinare l'album omonimo di
+        # un artista qualunque.
         threshold = TITLE_MATCH_THRESHOLD if record.get("artist") else TITLE_ONLY_MATCH_THRESHOLD
         _trace(f"rete di sicurezza: cerco su Discogs per solo titolo '{record['album_title']}' (soglia somiglianza {threshold})...")
         try:
@@ -331,6 +336,8 @@ def _search_single_candidate(record: dict) -> dict | None:
             seen_titles.add(candidate.get("title"))
             if _candidate_plausibly_matches(record, candidate, title_threshold=threshold):
                 return candidate
+    elif record.get("album_title"):
+        _trace(f"titolo '{record['album_title']}' è una sola parola e non c'è artista a confermare — troppo generico, salto la rete di sicurezza per solo titolo")
 
     _trace("nessuna corrispondenza Discogs plausibile per questo disco")
     return None

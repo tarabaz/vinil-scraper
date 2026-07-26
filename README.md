@@ -733,3 +733,13 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   filosofia già usata da `MERGE_FIELDS` in `enrichment.py`) come chiave di
   confronto: variazioni nel testo libero non contano più come "disco
   diverso".
+- **2026-07-25** — Verificato che il lotto Queen è sceso da 11 a 3 "dischi"
+  con tutti i fix precedenti — l'unico residuo era il caso "Queen" già
+  segnalato come limite noto: l'album omonimo trovato dalla rete di
+  sicurezza per solo titolo partendo da una singola parola letta senza
+  nessun artista a confermarla (troppo generico, poteva appartenere a
+  qualsiasi artista). Chiusa questa falla specifica: la rete di sicurezza
+  per solo titolo ora si esclude quando il titolo letto è di una sola
+  parola E non c'è nemmeno un artista da incrociare — un titolo di più
+  parole, o una singola parola ma con l'artista noto per il controllo
+  incrociato, continuano a funzionare come prima.
