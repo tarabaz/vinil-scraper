@@ -722,3 +722,14 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   è il limite architetturale già segnalato in precedenza (raggruppamento
   basato su release_id, non su un confronto diretto artista+titolo tra
   gli item finali).
+- **2026-07-25** — Il dedup delle ripetizioni vision nella stessa risposta
+  (`_dedupe_identical` in `core/vision/ollama_vision.py`) non stava ancora
+  funzionando dopo il fix delle immagini duplicate: confrontava anche
+  "other_text" (testo libero) tra i campi, e il modello lo variava
+  leggermente a ogni ripetizione (es. un frammento diverso di tracklist)
+  pur mantenendo identici artista/titolo/catalogo/barcode — la chiave di
+  confronto risultava quindi sempre diversa, niente veniva scartato.
+  Introdotto `IDENTITY_FIELDS` (tutti i campi tranne "other_text", stessa
+  filosofia già usata da `MERGE_FIELDS` in `enrichment.py`) come chiave di
+  confronto: variazioni nel testo libero non contano più come "disco
+  diverso".

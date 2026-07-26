@@ -19,6 +19,12 @@ OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", "qwen2.5vl")
 # bisogno di dati strutturati, non di una descrizione in prosa.
 FIELDS = ["artist", "album_title", "label", "catalog_number", "barcode", "other_text"]
 
+# Campi usati per riconoscere due letture come "lo stesso disco" (dedup,
+# raggruppamento): esclude "other_text", testo libero che può variare leggermente
+# anche quando il modello ripete la stessa identificazione (es. un frammento
+# diverso di tracklist letto ogni volta) — non è un segnale di un disco diverso.
+IDENTITY_FIELDS = [f for f in FIELDS if f != "other_text"]
+
 # Una foto di un lotto può mostrare più copertine/dischi insieme (es. 4
 # fronti in una foto, i rispettivi 4 retri nella foto successiva) — il
 # modello deve poter restituire un elemento per ogni disco visibile, non
@@ -140,11 +146,13 @@ def _dedupe_identical(results: list[dict]) -> list[dict]:
     disco fisico in più) — senza questo, un raggruppamento a valle
     (core.vision.matching) le scambierebbe per prova di copie fisiche
     duplicate nella stessa foto. Tiene solo la prima occorrenza di ogni
-    combinazione identica di campi."""
+    combinazione identica di campi (IDENTITY_FIELDS, non FIELDS per
+    intero: "other_text" può variare leggermente anche per la stessa
+    identificazione, senza per questo essere un disco diverso)."""
     seen = set()
     deduped = []
     for r in results:
-        key = tuple(r.get(f) for f in FIELDS)
+        key = tuple(r.get(f) for f in IDENTITY_FIELDS)
         if key in seen:
             continue
         seen.add(key)
