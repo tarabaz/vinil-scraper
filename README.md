@@ -765,3 +765,27 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   quell'artista è più probabile testo non pertinente che un disco di
   tutt'altro artista, e un abbinamento sbagliato è peggio di nessun
   abbinamento.
+- **2026-07-25** — Aggiunto il **riconoscimento visivo della copertina**
+  come segnale di conferma/smentita indipendente dal testo letto (OCR):
+  finora ogni verifica di plausibilità confrontava solo testo (titolo,
+  artista) contro testo Discogs — un codice catalogo/barcode riusato,
+  refuso, o un testo che combacia per coincidenza porta comunque a un
+  abbinamento sbagliato se il segnale testuale sembra plausibile. Nuovo
+  modulo `core/vision/cover_similarity.py`: modello CLIP locale (gira
+  sulla stessa GPU della vision testuale, `openai/clip-vit-base-patch32`)
+  che confronta l'embedding della foto reale con la copertina di
+  riferimento Discogs del candidato (nuovo campo `cover_image` recuperato
+  dalle ricerche Discogs). Sotto una soglia di somiglianza
+  (`CLIP_REJECT_THRESHOLD = 0.6`) il candidato viene scartato anche se il
+  testo sembrava combaciare (il disco resta comunque nel lotto con i suoi
+  dati grezzi, senza però il match Discogs sbagliato); sopra
+  `CLIP_CONFIRM_THRESHOLD = 0.85` l'affidabilità viene rafforzata (nuovo
+  segnale "clip_similarity", già previsto da mesi in
+  `core/vision/matching.py` ma mai collegato). Se le dipendenze (torch,
+  transformers, Pillow — aggiunte a `requirements.txt`) o il modello non
+  sono disponibili, il confronto visivo si disattiva da solo senza
+  bloccare nulla: la pipeline continua a funzionare solo su testo come
+  prima. Non ancora verificato contro l'inferenza CLIP reale (nessuna GPU
+  in questo ambiente) — da testare sul PC dell'utente dopo
+  `pip install -r requirements.txt` (la prima chiamata scarica il
+  checkpoint del modello, qualche centinaio di MB).

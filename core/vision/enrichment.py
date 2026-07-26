@@ -32,6 +32,7 @@ from core.collectors.discogs import get_marketplace_stats, get_price_suggestions
 from core.collectors.ebay import get_item_images
 from core.db import insert_vision_result
 from core.user_filters import matches_user_filter
+from core.vision.cover_similarity import cosine_similarity, get_image_embedding
 from core.vision.matching import CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, CONFIRMATION_BONUS_PER_PHOTO, Detection, group_detections
 from core.vision.ollama_vision import FIELDS, recognize_image
 
@@ -199,6 +200,61 @@ def _titles_plausibly_match(recognized_title: str | None, candidate_title: str |
 ARTIST_MATCH_THRESHOLD = 0.5  # nomi corti: senza margine, coincidenze casuali di poche lettere superano soglie basse
 MIN_ARTIST_HINT_CONFIRMATIONS = 2  # quante volte un artista deve comparire nel lotto per fidarsene come "dominante"
 
+# Sotto questa soglia le due copertine sono troppo diverse: scarta il
+# candidato anche se il testo sembrava combaciare (segnale indipendente
+# dall'OCR, l'unico che non dipende da come la vision ha letto il testo).
+# Sopra CLIP_CONFIRM_THRESHOLD, la copertina è chiaramente la stessa e
+# rafforza l'affidabilità (segnale "clip_similarity" in core.vision.matching).
+CLIP_REJECT_THRESHOLD = 0.6
+CLIP_CONFIRM_THRESHOLD = 0.85
+
+
+def _get_photo_embedding(photo_id: str):
+    """Embedding CLIP della foto reale da cui è stato letto questo disco,
+    per il confronto visivo con le copertine Discogs candidate. None se il
+    modello non è disponibile o la foto non è recuperabile (es.
+    placeholder di cache senza URL reale)."""
+    if not photo_id.startswith("http"):
+        return None
+    try:
+        image_bytes = fetch_image_bytes(photo_id)
+    except Exception as exc:
+        print(f"[ERRORE] recupero foto per confronto visivo fallito: {exc}")
+        return None
+    return get_image_embedding(image_bytes)
+
+
+def _finalize_candidate(candidate: dict, photo_embedding) -> dict | None:
+    """Ultimo controllo prima di accettare un candidato già passato la
+    verifica testuale: il confronto visivo con la copertina di riferimento
+    Discogs, se disponibile (embedding della foto calcolato, e il
+    candidato ha una cover_image). Una copertina visivamente troppo
+    diversa scarta il candidato anche se il testo sembrava combaciare —
+    l'unico controllo indipendente da come la vision ha letto il testo, utile
+    proprio quando un codice catalogo/barcode è stato riusato, refuso, o
+    abbinato per coincidenza testuale a un disco completamente diverso.
+    Se il modello CLIP non è disponibile o manca la cover_image, non
+    blocca nulla: il candidato viene accettato solo su base testuale come
+    prima di questa funzionalità."""
+    similarity = None
+    if photo_embedding is not None and candidate.get("cover_image"):
+        try:
+            cover_bytes = fetch_image_bytes(candidate["cover_image"])
+            cover_embedding = get_image_embedding(cover_bytes)
+            similarity = cosine_similarity(photo_embedding, cover_embedding)
+        except Exception as exc:
+            print(f"[ERRORE] confronto visivo copertina fallito: {exc}")
+
+    if similarity is not None:
+        if similarity < CLIP_REJECT_THRESHOLD:
+            _trace(f"scarto '{candidate.get('title')}': copertina visivamente troppo diversa (somiglianza {similarity:.2f})")
+            return None
+        _trace(f"copertina confermata visivamente per '{candidate.get('title')}' (somiglianza {similarity:.2f})")
+
+    candidate = dict(candidate)
+    candidate["clip_similarity"] = similarity
+    return candidate
+
 
 def _split_candidate_title(candidate_title: str | None) -> tuple[str | None, str]:
     """Il campo "title" di un risultato Discogs è quasi sempre nel formato
@@ -250,7 +306,7 @@ def _candidate_plausibly_matches(record: dict, candidate: dict, title_threshold:
     return True
 
 
-def _search_single_candidate(record: dict, artist_hint: str | None = None) -> dict | None:
+def _search_single_candidate(record: dict, artist_hint: str | None = None, photo_embedding=None) -> dict | None:
     """Cerca UN disco (per identificarlo dentro il raggruppamento di un
     lotto): preferisce il codice catalogo (più preciso), poi artista+titolo
     esatto, poi una ricerca per solo titolo come rete di sicurezza finale —
@@ -258,7 +314,9 @@ def _search_single_candidate(record: dict, artist_hint: str | None = None) -> di
     di plausibile, non solo quando manca l'artista. A differenza di
     find_discogs_candidates verifica sempre che titolo E (se letto) artista
     del candidato somiglino a quelli riconosciuti, scartando abbinamenti
-    implausibili invece di accettare il primo risultato a occhi chiusi.
+    implausibili invece di accettare il primo risultato a occhi chiusi — e,
+    se disponibile un embedding della foto reale, anche che la copertina di
+    riferimento Discogs sia visivamente plausibile (_finalize_candidate).
 
     artist_hint è l'artista dominante dell'intero lotto (vedi
     build_items_from_records): se questo disco non ha un artista letto ma
@@ -289,7 +347,9 @@ def _search_single_candidate(record: dict, artist_hint: str | None = None) -> di
                     continue
                 seen_titles.add(candidate.get("title"))
                 if _candidate_plausibly_matches(record, candidate):
-                    return candidate
+                    finalized = _finalize_candidate(candidate, photo_embedding)
+                    if finalized:
+                        return finalized
 
     if record.get("artist") and record.get("album_title"):
         _trace(f"cerco su Discogs per artista+titolo esatto '{record['artist']}' / '{record['album_title']}'...")
@@ -306,9 +366,12 @@ def _search_single_candidate(record: dict, artist_hint: str | None = None) -> di
                 "year": None,
                 "label": None,
                 "catno": None,
+                "cover_image": release.get("cover_image"),
             }
             if _candidate_plausibly_matches(record, candidate):
-                return candidate
+                finalized = _finalize_candidate(candidate, photo_embedding)
+                if finalized:
+                    return finalized
         else:
             _trace("nessun risultato per artista+titolo esatto")
 
@@ -327,10 +390,13 @@ def _search_single_candidate(record: dict, artist_hint: str | None = None) -> di
                 "year": None,
                 "label": None,
                 "catno": None,
+                "cover_image": release.get("cover_image"),
             }
             hinted_record = {**record, "artist": artist_hint}
             if _candidate_plausibly_matches(hinted_record, candidate):
-                return candidate
+                finalized = _finalize_candidate(candidate, photo_embedding)
+                if finalized:
+                    return finalized
         else:
             _trace("nessun risultato con l'artista dominante del lotto")
         # In un lotto con un artista dominante, un titolo che non risulta
@@ -374,7 +440,9 @@ def _search_single_candidate(record: dict, artist_hint: str | None = None) -> di
                 continue
             seen_titles.add(candidate.get("title"))
             if _candidate_plausibly_matches(record, candidate, title_threshold=threshold):
-                return candidate
+                finalized = _finalize_candidate(candidate, photo_embedding)
+                if finalized:
+                    return finalized
     elif record.get("album_title"):
         _trace(f"titolo '{record['album_title']}' è una sola parola e non c'è artista a confermare — troppo generico, salto la rete di sicurezza per solo titolo")
 
@@ -453,7 +521,8 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[lis
             continue  # foto/riga senza nulla di leggibile, non genera una detection
 
         print(f"  📷 {photo_id}")
-        candidate = _search_single_candidate(record, artist_hint=artist_hint)
+        photo_embedding = _get_photo_embedding(photo_id)
+        candidate = _search_single_candidate(record, artist_hint=artist_hint, photo_embedding=photo_embedding)
         release_id = candidate["id"] if candidate else None
         if candidate:
             candidates_by_release[release_id] = candidate
@@ -474,6 +543,7 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[lis
                     "artist_title_text": bool(record.get("artist") and record.get("album_title")),
                     "label_match": bool(record.get("label")),
                     "discogs_match": bool(candidate),
+                    "clip_similarity": bool(candidate and (candidate.get("clip_similarity") or 0) >= CLIP_CONFIRM_THRESHOLD),
                 },
             )
         )

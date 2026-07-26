@@ -3,3 +3,6 @@ requests
 pyyaml
 beautifulsoup4
 python-telegram-bot
+torch
+transformers
+Pillow

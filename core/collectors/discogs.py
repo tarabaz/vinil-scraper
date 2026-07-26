@@ -75,6 +75,7 @@ def search_by_title(title: str) -> list[dict]:
             "year": r.get("year"),
             "label": r.get("label"),
             "catno": r.get("catno"),
+            "cover_image": r.get("cover_image"),
         }
         for r in results
     ]
@@ -112,6 +113,7 @@ def search_by_catalog_number(
             "label": r.get("label"),
             "catno": r.get("catno"),
             "format": r.get("format"),
+            "cover_image": r.get("cover_image"),
         }
         for r in results
     ]
