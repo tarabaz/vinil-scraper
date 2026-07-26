@@ -197,6 +197,7 @@ def _titles_plausibly_match(recognized_title: str | None, candidate_title: str |
 
 
 ARTIST_MATCH_THRESHOLD = 0.5  # nomi corti: senza margine, coincidenze casuali di poche lettere superano soglie basse
+MIN_ARTIST_HINT_CONFIRMATIONS = 2  # quante volte un artista deve comparire nel lotto per fidarsene come "dominante"
 
 
 def _split_candidate_title(candidate_title: str | None) -> tuple[str | None, str]:
@@ -249,7 +250,7 @@ def _candidate_plausibly_matches(record: dict, candidate: dict, title_threshold:
     return True
 
 
-def _search_single_candidate(record: dict) -> dict | None:
+def _search_single_candidate(record: dict, artist_hint: str | None = None) -> dict | None:
     """Cerca UN disco (per identificarlo dentro il raggruppamento di un
     lotto): preferisce il codice catalogo (più preciso), poi artista+titolo
     esatto, poi una ricerca per solo titolo come rete di sicurezza finale —
@@ -257,7 +258,14 @@ def _search_single_candidate(record: dict) -> dict | None:
     di plausibile, non solo quando manca l'artista. A differenza di
     find_discogs_candidates verifica sempre che titolo E (se letto) artista
     del candidato somiglino a quelli riconosciuti, scartando abbinamenti
-    implausibili invece di accettare il primo risultato a occhi chiusi."""
+    implausibili invece di accettare il primo risultato a occhi chiusi.
+
+    artist_hint è l'artista dominante dell'intero lotto (vedi
+    build_items_from_records): se questo disco non ha un artista letto ma
+    il resto del lotto è chiaramente di un artista, si prova prima quello
+    invece della rete di sicurezza alla cieca — un titolo che non risulta
+    di quell'artista in un lotto altrimenti a tema unico è più probabile
+    testo non pertinente che un disco di tutt'altro artista."""
     _trace(f"disco da identificare: artista={record.get('artist')!r}, titolo={record.get('album_title')!r}, catalogo={record.get('catalog_number')!r}, barcode={record.get('barcode')!r}")
 
     if record.get("catalog_number"):
@@ -303,6 +311,37 @@ def _search_single_candidate(record: dict) -> dict | None:
                 return candidate
         else:
             _trace("nessun risultato per artista+titolo esatto")
+
+    if record.get("album_title") and not record.get("artist") and artist_hint:
+        _trace(f"nessun artista letto per questo disco: provo l'artista dominante del lotto '{artist_hint}'...")
+        try:
+            release = search_release(artist_hint, record["album_title"])
+        except Exception as exc:
+            print(f"[ERRORE] ricerca Discogs per artista del lotto/titolo fallita: {exc}")
+            release = None
+        if release:
+            candidate = {
+                "id": release["id"],
+                "title": release.get("title"),
+                "country": None,
+                "year": None,
+                "label": None,
+                "catno": None,
+            }
+            hinted_record = {**record, "artist": artist_hint}
+            if _candidate_plausibly_matches(hinted_record, candidate):
+                return candidate
+        else:
+            _trace("nessun risultato con l'artista dominante del lotto")
+        # In un lotto con un artista dominante, un titolo che non risulta
+        # di quell'artista è più probabile testo non pertinente (rumore,
+        # es. il titolo di un'altra canzone letto per sbaglio da un'altra
+        # parte della copertina) che un disco di tutt'altro artista — non
+        # proviamo la rete di sicurezza alla cieca in questo caso, rischia
+        # più di sbagliare (l'errore reale visto: "Fear of the Dark"
+        # abbinato a Gordon Giltrap invece che considerato probabilmente
+        # di Iron Maiden, dato il resto del lotto) che di aiutare.
+        return None
 
     if record.get("album_title") and not (len(record["album_title"].split()) < 2 and not record.get("artist")):
         # Rete di sicurezza ad ampio raggio: scatta ogni volta che le
@@ -399,12 +438,22 @@ def build_items_from_records(photo_records: list[tuple[str, dict]]) -> tuple[lis
     detections = []
     candidates_by_release: dict[int, dict] = {}
 
+    artist_counts: dict[str, int] = {}
+    for _, record in photo_records:
+        if record.get("artist"):
+            artist_counts[record["artist"]] = artist_counts.get(record["artist"], 0) + 1
+    artist_hint = max(artist_counts, key=artist_counts.get) if artist_counts else None
+    if artist_hint and artist_counts[artist_hint] < MIN_ARTIST_HINT_CONFIRMATIONS:
+        artist_hint = None  # una sola lettura non basta per fidarsi come "artista di tutto il lotto"
+    if artist_hint:
+        print(f"  🎯 artista dominante del lotto: '{artist_hint}' ({artist_counts[artist_hint]} conferme) — usato per dischi senza artista letto")
+
     for photo_id, record in photo_records:
         if not any(record.get(f) for f in MERGE_FIELDS):
             continue  # foto/riga senza nulla di leggibile, non genera una detection
 
         print(f"  📷 {photo_id}")
-        candidate = _search_single_candidate(record)
+        candidate = _search_single_candidate(record, artist_hint=artist_hint)
         release_id = candidate["id"] if candidate else None
         if candidate:
             candidates_by_release[release_id] = candidate

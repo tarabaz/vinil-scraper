@@ -743,3 +743,25 @@ Ogni riga indica quando è stata fatta la modifica (data del commit).
   parola E non c'è nemmeno un artista da incrociare — un titolo di più
   parole, o una singola parola ma con l'artista noto per il controllo
   incrociato, continuano a funzionare come prima.
+- **2026-07-25** — Bug reale grave su un lotto Iron Maiden (5 dischi
+  picture disc, tutti dello stesso artista secondo la descrizione eBay):
+  4 identificati correttamente, ma 3 attribuiti ad artisti completamente
+  a caso — "Fear of the Dark" (in realtà un album Iron Maiden del 1992)
+  abbinato a "Gordon Giltrap", "Out of the Silent Planet" a "King's X",
+  più un "Dark Side of the Moon" (Pink Floyd) del tutto estraneo al lotto
+  abbinato a un bootleg "Future Funk" via un codice catalogo/barcode
+  probabilmente letto per errore da qualche altra parte della confezione.
+  Causa: per queste foto la vision non aveva letto l'artista, quindi la
+  rete di sicurezza per solo titolo cercava alla cieca su Discogs e
+  prendeva il primo artista qualsiasi con un album dallo stesso titolo —
+  senza considerare che il resto del lotto era chiaramente a tema unico
+  (Iron Maiden). Aggiunta un'ipotesi di **artista dominante del lotto**:
+  se un artista compare in almeno `MIN_ARTIST_HINT_CONFIRMATIONS` (2)
+  letture diverse nello stesso annuncio, i dischi senza artista letto
+  vengono prima provati con quell'artista (non con una ricerca alla
+  cieca) — e se anche questo non trova nulla di plausibile, la rete di
+  sicurezza generica per solo titolo viene **saltata del tutto** invece di
+  tentare comunque: in un lotto a tema unico un titolo che non risulta di
+  quell'artista è più probabile testo non pertinente che un disco di
+  tutt'altro artista, e un abbinamento sbagliato è peggio di nessun
+  abbinamento.
